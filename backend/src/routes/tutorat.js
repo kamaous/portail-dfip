@@ -218,6 +218,11 @@ router.put('/:id', auth, (req, res) => {
     return res.status(403).json({ error: 'Seul le Chef de division Technopédagogie met à jour la section PLATEFORMES ET TUTORATS.' });
   }
 
+  // Fiche issue du planning annuel : ses dates sont pilotées par l'activité liée
+  if (prev.activite_id && ['date_debut', 'date_fin'].some(f => f in req.body)) {
+    return res.status(409).json({ error: 'Cette fiche est liée au Planning annuel : modifiez les dates de l\'activité dans le planning.' });
+  }
+
   // Les indicateurs ne se remplissent qu'après validation de la fiche
   if (estChef && prev.statut_fiche === 'SOUMISE' && champsDemandes.some(f => INDICATEURS.includes(f))) {
     return res.status(409).json({ error: 'Validez d\'abord la fiche avant de renseigner PLATEFORMES ET TUTORATS.' });
@@ -293,7 +298,12 @@ router.post('/:id/signaler-retard', auth, requireRole(...WRITE_ROLES), (req, res
 
 // DELETE /api/tutorat/:id
 router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  getDb().prepare('DELETE FROM tutorat WHERE id = ?').run(req.params.id);
+  const db = getDb();
+  const t = db.prepare('SELECT activite_id FROM tutorat WHERE id = ?').get(req.params.id);
+  if (t?.activite_id) {
+    return res.status(409).json({ error: 'Fiche liée au Planning annuel : supprimez l\'activité dans le planning.' });
+  }
+  db.prepare('DELETE FROM tutorat WHERE id = ?').run(req.params.id);
   res.json({ message: 'Fiche supprimée' });
 });
 

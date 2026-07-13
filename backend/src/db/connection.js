@@ -467,6 +467,46 @@ function runMigrations() {
     WHERE type IS NULL AND ligne LIKE 'Évaluations %';
   `);
 
+  // Liaison planning → modules : chaque activité typée alimente automatiquement
+  // le module correspondant (fiche tutorat / évaluation liée, sans double saisie)
+  addColumns('tutorat', { activite_id: 'INTEGER' });
+  addColumns('sessions_examen', { activite_id: 'INTEGER' });
+
+  // Rattrapage : créer les entrées liées pour les activités typées existantes
+  const segPole = { PSEJA: 'SEJA', PSTN: 'STN', PLSHE: 'LSHE' };
+  const nivMap = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
+  const typees = db.prepare(`
+    SELECT pa.* FROM planning_activites pa
+    WHERE pa.type IN ('TUTORAT','EVALUATIONS')
+      AND NOT EXISTS (SELECT 1 FROM tutorat t WHERE t.activite_id = pa.id)
+      AND NOT EXISTS (SELECT 1 FROM sessions_examen se WHERE se.activite_id = pa.id)
+  `).all();
+  for (const pa of typees) {
+    const poleCode = segPole[pa.segment];
+    if (!poleCode) continue; // seuls les segments de pôle alimentent les modules
+    const pole = db.prepare('SELECT id FROM poles WHERE code = ?').get(poleCode);
+    if (!pole) continue;
+    const admin = db.prepare("SELECT id FROM users WHERE role = 'ADMIN_PORTAIL' ORDER BY id LIMIT 1").get();
+    const createdBy = pa.created_by || admin?.id;
+    if (!createdBy) continue;
+    if (pa.type === 'TUTORAT') {
+      db.prepare(`
+        INSERT INTO tutorat (annee_id, pole_id, niveau, date_debut, date_fin, statut_fiche, activite_id, created_by, observations)
+        VALUES (?, ?, ?, ?, ?, 'VALIDEE', ?, ?, ?)
+      `).run(pa.annee_id, pole.id, nivMap[pa.ligne] || null, pa.date_debut, pa.date_fin, pa.id, createdBy,
+        `Issue du planning annuel : ${pa.libelle}`);
+    } else {
+      db.prepare(`
+        INSERT INTO sessions_examen (annee_id, pole_id, niveau, session_num, type_evaluation,
+          date_demarrage, date_fin_prevue, activite_id, created_by, observations)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+      `).run(pa.annee_id, pole.id, nivMap[pa.ligne] || null,
+        pa.sous_type === 'DEVOIRS' ? 'DEVOIR' : 'EVALUATION',
+        pa.date_debut, pa.date_fin, pa.id, createdBy,
+        `Issue du planning annuel : ${pa.libelle}`);
+    }
+  }
+
   // Incidents : types officiels + conséquences structurées avec périmètre
   addColumns('incidents', {
     conseq_eval:      'TEXT',   // REPORT, ANNULATION, RALLONGE, ARRET, AUTRE

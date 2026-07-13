@@ -54,6 +54,7 @@ module.exports = {
     ADMIN_PORTAIL: 'Administrateur du Portail'
   },
 
-  // Rôles à visibilité restreinte à leur pôle (voient uniquement ce qui les concerne)
-  ROLES_RESTREINTS: ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT']
+  // Rôles à visibilité restreinte à leur pôle (voient uniquement ce qui les concerne).
+  // Les Directeurs de pôle et Responsables pédagogiques voient TOUS les pôles (comme la direction).
+  ROLES_RESTREINTS: ['MEMBRE_POLE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT']
 };

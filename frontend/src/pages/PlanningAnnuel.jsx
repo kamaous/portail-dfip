@@ -261,8 +261,8 @@ function ModalActivite({ annee, canSegments, defaultSegment, onClose, onCreated 
           </div>
           {form.type && (
             <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl p-2.5 -mt-1">
-              💡 Cette plage alimentera automatiquement le module <strong>{form.type === 'TUTORAT' ? 'Tutorat' : 'Évaluations'}</strong> :
-              les dates saisies par les responsables devront s'y inscrire.
+              🔗 Cette activité sera <strong>automatiquement affichée dans le module {form.type === 'TUTORAT' ? 'Tutorat' : 'Évaluations'}</strong> —
+              pas de nouvelle saisie : le suivi se fera directement sur l'entrée liée.
             </p>
           )}
           <div className="grid grid-cols-2 gap-3">

@@ -188,6 +188,8 @@ export default function Evaluations() {
   const [delibModal, setDelibModal] = useState(false);
   const [conflitInfo, setConflitInfo] = useState(null); // popup conflit inter-pôles
 
+  const [plagesPlanning, setPlagesPlanning] = useState([]); // activités type EVALUATIONS du Planning annuel
+
   function load() {
     setLoading(true);
     const qs = new URLSearchParams();
@@ -200,9 +202,10 @@ export default function Evaluations() {
       api.get('/dashboard/annees'),
       api.get('/calendrier-academique/vacances'),
       api.get('/calendrier-academique/feries'),
-    ]).then(([s, p, pr, a, v, f]) => {
+      api.get('/planning/plages?type=EVALUATIONS'),
+    ]).then(([s, p, pr, a, v, f, pl]) => {
       setItems(s.data); setPoles(p.data); setPromotions(pr.data); setAnnees(a.data);
-      setVacances(v.data); setFeries(f.data);
+      setVacances(v.data); setFeries(f.data); setPlagesPlanning(pl.data);
     }).finally(() => setLoading(false));
   }
   useEffect(load, [filtreSession, filtreType]);
@@ -244,8 +247,9 @@ export default function Evaluations() {
   // Délibérations : Directeurs de pôle + Responsable pédagogique (héritage)
   const canDelib = ['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
 
-  // Profils rattachés à un pôle : vue limitée
-  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
+  // Vue limitée au pôle : responsables de formation uniquement
+  // (Directeurs de pôle et Responsables pédagogiques voient TOUS les pôles)
+  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
   const poleCodeUser = ROLES_POLE.includes(user?.role) && user?.pole_id
     ? poles.find(p => p.id === user.pole_id)?.code || null : null;
   useEffect(() => { if (poleCodeUser) setSegment(poleCodeUser); }, [poleCodeUser]);
@@ -342,14 +346,32 @@ export default function Evaluations() {
       ) : affiches.length === 0 ? (
         <div className="card py-12 text-center text-slate-400"><ClipboardCheck size={36} className="mx-auto mb-2 opacity-30" />Aucune évaluation{segment ? ` pour le pôle ${segment}` : ''}</div>
       ) : vue === 'CARTES' ? (
-        <div className="grid lg:grid-cols-2 gap-4">
-          {affiches.map(s => (
-            <CarteEvaluation key={s.id} s={s} {...propsCarte}
-              selectable={canDelib && s.etat_eval === 'EVAL_TERMINEES'}
-              selected={selection.includes(s.id)}
-              onToggleSel={() => toggleSel(s.id)} />
-          ))}
-        </div>
+        <>
+          {/* Activités EVALUATIONS issues du Planning annuel */}
+          {(() => {
+            const plagesAff = plagesPlanning.filter(p => !segment || p.pole_code === segment);
+            if (plagesAff.length === 0) return null;
+            return (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800 flex items-center gap-2 flex-wrap">
+                <span className="font-semibold">🧪 Évaluations au Planning annuel :</span>
+                {plagesAff.map((p, i) => (
+                  <span key={i} className="bg-white rounded-lg px-2 py-1 font-semibold" title={p.ligne}>
+                    {p.pole_code} · {p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} {p.libelle} : {p.date_debut} → {p.date_fin}
+                  </span>
+                ))}
+                <span className="text-blue-500">Les évaluations saisies ci-dessous s'inscrivent dans ces plages.</span>
+              </div>
+            );
+          })()}
+          <div className="grid lg:grid-cols-2 gap-4">
+            {affiches.map(s => (
+              <CarteEvaluation key={s.id} s={s} {...propsCarte}
+                selectable={canDelib && s.etat_eval === 'EVAL_TERMINEES'}
+                selected={selection.includes(s.id)}
+                onToggleSel={() => toggleSel(s.id)} />
+            ))}
+          </div>
+        </>
       ) : (
         /* ===== Vue PLANNING ===== */
         <div className="card !p-0 overflow-x-auto nav-scroll">
@@ -372,7 +394,39 @@ export default function Evaluations() {
                     <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{pole.nom}</span>
                     <span className="text-xs text-slate-400 ml-auto">{sessPole.length} évaluation(s)</span>
                   </div>
-                  {formations.length === 0 && <p className="text-xs text-slate-400 italic px-3 py-2">Aucune évaluation</p>}
+
+                  {/* Activités EVALUATIONS du Planning annuel (récupérées automatiquement) */}
+                  {(() => {
+                    const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
+                    if (plagesPole.length === 0) return null;
+                    return (
+                      <div className="flex border-t border-slate-50 bg-slate-50/60">
+                        <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-xs font-semibold ${focus ? 'py-3' : 'py-2'}`} style={{ color: seg.color }}>
+                          🧪 Planning annuel
+                        </div>
+                        <div className={`flex-1 relative ${focus ? 'h-11' : 'h-9'}`}>
+                          <FondGrille tl={tl} />
+                          <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
+                          {plagesPole.map((p, i) => {
+                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
+                            if (rr <= 0 || lr >= 100) return null;
+                            const l = Math.max(0, lr);
+                            const w = Math.max(Math.min(100, rr) - l, 1);
+                            return (
+                              <div key={i}
+                                title={`Activité du Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`}
+                                className="absolute top-1 bottom-1 rounded-md border-2 border-dashed flex items-center px-2 text-[10px] font-bold overflow-hidden"
+                                style={{ left: `${l}%`, width: `${w}%`, borderColor: seg.color, color: seg.color, background: '#ffffffcc' }}>
+                                <span className="truncate">{p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} {p.libelle} · {p.ligne}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  {formations.length === 0 && <p className="text-xs text-slate-400 italic px-3 py-2">Aucune évaluation saisie (plages du Planning annuel ci-dessus)</p>}
                   {formations.map(fname => {
                     const sess = sessPole.filter(s => (s.formation_nom || '(formation ?)') === fname);
                     return (
@@ -484,7 +538,7 @@ export default function Evaluations() {
 
 /* ===== Carte d'une évaluation ===== */
 function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, userPoleId, userRole, selectable, selected, onToggleSel }) {
-  const editDates = (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE';
+  const editDates = (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE' && !s.activite_id;
   const editDelib = (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
   return (
     <div className={`card relative ${s.etat === 'ANNULE' ? 'opacity-60' : ''} ${selected ? 'ring-2 ring-purple-400' : ''}`}>
@@ -499,6 +553,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDe
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold text-slate-800">{SESSION_LABEL[s.session_num]}</h3>
             <span className={`badge ${TYPE_EVAL[s.type_evaluation]?.color || ''}`}>{TYPE_EVAL[s.type_evaluation]?.label}</span>
+            {s.activite_id && <span className="badge bg-indigo-100 text-indigo-700" title="Issue du planning annuel — dates pilotées par l'activité liée">🔗 Planning annuel</span>}
             {s.etat === 'ANNULE' && <span className="badge bg-red-100 text-red-700">Annulée</span>}
           </div>
           <p className="text-xs text-slate-500 truncate">
@@ -564,7 +619,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDe
       {(canSuivi || canDelete) && s.etat !== 'ANNULE' && (
         <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
           {canSuivi && <button onClick={() => annuler(s)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg">Annuler l'évaluation</button>}
-          {canDelete && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={15} /></button>}
+          {canDelete && !s.activite_id && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={15} /></button>}
         </div>
       )}
     </div>

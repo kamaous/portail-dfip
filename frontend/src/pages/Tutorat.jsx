@@ -266,6 +266,7 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
             <h3 className="font-bold text-lg leading-tight truncate" title={t.formation_nom}>{t.formation_nom || 'Formation —'}</h3>
           </div>
           <div className="flex flex-col items-end gap-1 shrink-0">
+            {t.activite_id && <span className="badge bg-white/25 text-white" title="Issue du planning annuel — dates pilotées par l'activité liée">🔗 Planning annuel</span>}
             {soumise && <span className="badge bg-amber-400 text-amber-950">⏳ À valider</span>}
             {rejetee && <span className="badge bg-red-200 text-red-800">Rejetée</span>}
             {validee && (
@@ -367,7 +368,7 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
                 <AlertTriangle size={13} /> Retard
               </button>
             )}
-            {canDelete && (
+            {canDelete && !t.activite_id && (
               <button onClick={() => onDelete(t.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded">
                 <Trash2 size={15} />
               </button>
@@ -395,6 +396,7 @@ export default function Tutorat() {
   const [detailId, setDetailId] = useState(null);      // fiche ouverte en popup
   const [vacances, setVacances] = useState([]);
   const [feries, setFeries] = useState([]);
+  const [plagesPlanning, setPlagesPlanning] = useState([]); // activités type TUTORAT du Planning annuel
 
   function load() {
     setLoading(true);
@@ -405,9 +407,10 @@ export default function Tutorat() {
       api.get('/dashboard/annees'),
       api.get('/calendrier-academique/vacances'),
       api.get('/calendrier-academique/feries'),
-    ]).then(([t, p, pr, a, v, f]) => {
+      api.get('/planning/plages?type=TUTORAT'),
+    ]).then(([t, p, pr, a, v, f, pl]) => {
       setTutorats(t.data); setPoles(p.data); setPromotions(pr.data); setAnnees(a.data);
-      setVacances(v.data); setFeries(f.data);
+      setVacances(v.data); setFeries(f.data); setPlagesPlanning(pl.data);
     }).finally(() => setLoading(false));
   }
   useEffect(load, [filtreEtat]);
@@ -453,8 +456,9 @@ export default function Tutorat() {
   const canSetDemarrage = ['DIRECTEUR', 'CHEF_DIV_TECHNOPEDAGOGIE', 'ADMIN_PORTAIL'].includes(user?.role);
   const anneeActive = annees.find(a => a.active);
 
-  // Profils rattachés à un pôle : vue limitée à leur pôle uniquement
-  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
+  // Vue limitée au pôle : responsables de formation uniquement
+  // (Directeurs de pôle et Responsables pédagogiques voient TOUS les pôles, comme la direction)
+  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
   const poleCodeUser = ROLES_POLE.includes(user?.role) && user?.pole_id
     ? poles.find(p => p.id === user.pole_id)?.code || null
     : null;
@@ -583,11 +587,29 @@ export default function Tutorat() {
           Aucune fiche de suivi{segment ? ` pour le pôle ${segment}` : ''}
         </div>
       ) : vue === 'FICHES' ? (
-        <div className="grid lg:grid-cols-2 gap-4">
-          {tutoratsAffiches.map(t => (
-            <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider} canDelete={canDelete} canWrite={canWrite} canValider={canValider} />
-          ))}
-        </div>
+        <>
+          {/* Activités TUTORAT issues du Planning annuel */}
+          {(() => {
+            const plagesAff = plagesPlanning.filter(p => !segment || p.pole_code === segment);
+            if (plagesAff.length === 0) return null;
+            return (
+              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800 flex items-center gap-2 flex-wrap">
+                <span className="font-semibold">📚 Tutorat au Planning annuel :</span>
+                {plagesAff.map((p, i) => (
+                  <span key={i} className="bg-white rounded-lg px-2 py-1 font-semibold" title={p.ligne}>
+                    {p.pole_code} · {p.libelle} : {p.date_debut} → {p.date_fin}
+                  </span>
+                ))}
+                <span className="text-blue-500">Les fiches de suivi ci-dessous s'inscrivent dans ces plages.</span>
+              </div>
+            );
+          })()}
+          <div className="grid lg:grid-cols-2 gap-4">
+            {tutoratsAffiches.map(t => (
+              <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider} canDelete={canDelete} canWrite={canWrite} canValider={canValider} />
+            ))}
+          </div>
+        </>
       ) : (
         /* ===== Vue PLANNING : pôle → formations → barres de tutorat ===== */
         <div className="card !p-0 overflow-x-auto nav-scroll">
@@ -614,8 +636,40 @@ export default function Tutorat() {
                     <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{pole.nom}</span>
                     <span className="text-xs text-slate-400 ml-auto">{fichesPole.length} fiche(s)</span>
                   </div>
+
+                  {/* Activités TUTORAT du Planning annuel (récupérées automatiquement, sans re-création) */}
+                  {(() => {
+                    const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
+                    if (plagesPole.length === 0) return null;
+                    return (
+                      <div className="flex border-t border-slate-50 bg-slate-50/60">
+                        <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-xs font-semibold ${focus ? 'py-3' : 'py-2'}`} style={{ color: seg.color }}>
+                          📚 Planning annuel
+                        </div>
+                        <div className={`flex-1 relative ${focus ? 'h-11' : 'h-9'}`}>
+                          <FondGrille tl={tl} />
+                          <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
+                          {plagesPole.map((p, i) => {
+                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
+                            if (rr <= 0 || lr >= 100) return null;
+                            const l = Math.max(0, lr);
+                            const w = Math.max(Math.min(100, rr) - l, 1);
+                            return (
+                              <div key={i}
+                                title={`Activité du Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`}
+                                className="absolute top-1 bottom-1 rounded-md border-2 border-dashed flex items-center px-2 text-[10px] font-bold overflow-hidden"
+                                style={{ left: `${l}%`, width: `${w}%`, borderColor: seg.color, color: seg.color, background: '#ffffffcc' }}>
+                                <span className="truncate">📚 {p.libelle} · {p.ligne}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+
                   {formations.length === 0 && (
-                    <p className="text-xs text-slate-400 italic px-3 py-2">Aucune fiche de tutorat</p>
+                    <p className="text-xs text-slate-400 italic px-3 py-2">Aucune fiche de suivi (les plages ci-dessus viennent du Planning annuel)</p>
                   )}
                   {formations.map(fname => {
                     const fiches = fichesPole.filter(t => (t.formation_nom || '(formation non précisée)') === fname);

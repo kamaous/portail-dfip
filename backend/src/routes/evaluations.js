@@ -214,6 +214,9 @@ router.put('/:id', auth, (req, res) => {
 
   // --- Dates (Responsable de formation ou Chef DFE) : toujours dans les plages ---
   const changeDates = date_demarrage !== undefined || date_fin_prevue !== undefined;
+  if (changeDates && prev.activite_id) {
+    return res.status(409).json({ error: 'Cette évaluation est liée au Planning annuel : modifiez les dates de l\'activité dans le planning.' });
+  }
   if (changeDates) {
     if (!estSuivi && !estRF) return res.status(403).json({ error: 'Les dates sont renseignées par le responsable de formation.' });
     const errPlage = controlePlage(db, req.user, {
@@ -346,7 +349,12 @@ router.post('/deliberations', auth, requireRole(...DELIB_ROLES), (req, res) => {
 
 // DELETE
 router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  getDb().prepare('DELETE FROM sessions_examen WHERE id = ?').run(req.params.id);
+  const db = getDb();
+  const s = db.prepare('SELECT activite_id FROM sessions_examen WHERE id = ?').get(req.params.id);
+  if (s?.activite_id) {
+    return res.status(409).json({ error: 'Évaluation liée au Planning annuel : supprimez l\'activité dans le planning.' });
+  }
+  db.prepare('DELETE FROM sessions_examen WHERE id = ?').run(req.params.id);
   res.json({ message: 'Évaluation supprimée' });
 });
 

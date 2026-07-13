@@ -36,23 +36,16 @@ function codePoleUser(user, db) {
   return db.prepare('SELECT code FROM poles WHERE id = ?').get(user.pole_id)?.code || null;
 }
 
-/* Périmètre de CRÉATION/MODIFICATION par profil :
-   - RESPONSABLE_POLE → le segment de son pôle uniquement
-   - VICE_RECTEUR → RECTORAT
-   - DIRECTEUR (DFIP) et DIRECTEUR_DES → DFIP & DES
-   - ADMIN_PORTAIL → tous (administration technique)                     */
+/* Alimentation du planning annuel (décision 13/07/2026) :
+   SEULS les Responsables pédagogiques de pôle créent des activités — chacun pour SON pôle.
+   Le DFIP et l'Admin portail gardent l'accès complet (administration). */
 function segmentsAutorises(user, db) {
-  // DFIP = administrateur du portail : accès complet (décision 13/07/2026)
   if (user.role === 'DIRECTEUR' || user.role === 'ADMIN_PORTAIL') return SEGMENTS;
-  if (user.roles_effectifs?.includes('RESPONSABLE_POLE')) {
+  if (user.role === 'RESPONSABLE_PEDAGOGIQUE') {
     const code = codePoleUser(user, db);
     return code && POLE_SEGMENT[code] ? [POLE_SEGMENT[code]] : [];
   }
-  switch (user.role) {
-    case 'VICE_RECTEUR': return ['RECTORAT'];
-    case 'DIRECTEUR_DES': return ['DFIP_DES'];
-    default: return [];
-  }
+  return [];
 }
 
 /* Périmètre de VISIBILITÉ : les responsables rattachés à un pôle ne voient que leur segment.
@@ -71,6 +64,73 @@ function peutEcrire(user, segment, db) {
   // Le Directeur DFIP garde la main partout : c'est lui qui valide toute modification
   if (user.role === 'DIRECTEUR') return true;
   return segmentsAutorises(user, db).includes(segment);
+}
+
+/* ===== Liaison planning → modules =====
+   Une activité typée TUTORAT ou EVALUATIONS sur un segment de pôle alimente
+   automatiquement le module correspondant (pas de double saisie). */
+const NIVEAU_LIGNE = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
+
+function poleDuSegment(db, segment) {
+  const code = SEGMENT_POLE[segment];
+  return code ? db.prepare('SELECT id, code, nom FROM poles WHERE code = ?').get(code) : null;
+}
+
+// Conflit inter-pôles pour une plage d'ÉVALUATIONS du planning
+function conflitEvalPlanning(db, { annee_id, pole_id, date_debut, date_fin, exclure_activite_id }) {
+  return db.prepare(`
+    SELECT se.date_demarrage, se.date_fin_prevue, p.code as pole_code, p.nom as pole_nom, f.nom as formation_nom
+    FROM sessions_examen se
+    JOIN poles p ON p.id = se.pole_id
+    LEFT JOIN formations f ON f.id = se.formation_id
+    WHERE se.annee_id = ? AND se.pole_id != ? AND se.etat != 'ANNULE'
+      AND (se.activite_id IS NULL OR se.activite_id != ?)
+      AND se.date_demarrage IS NOT NULL
+      AND se.date_demarrage <= ? AND COALESCE(se.date_fin_prevue, se.date_demarrage) >= ?
+    ORDER BY se.date_demarrage LIMIT 5
+  `).all(annee_id, pole_id, exclure_activite_id || 0, date_fin || date_debut, date_debut);
+}
+
+// Crée / met à jour / supprime l'entrée de module liée à une activité
+function synchroniserModule(db, activiteId, userId) {
+  const pa = db.prepare('SELECT * FROM planning_activites WHERE id = ?').get(activiteId);
+  if (!pa) return;
+  const pole = poleDuSegment(db, pa.segment);
+  const ficheT = db.prepare('SELECT id FROM tutorat WHERE activite_id = ?').get(activiteId);
+  const ficheE = db.prepare('SELECT id FROM sessions_examen WHERE activite_id = ?').get(activiteId);
+  const niveau = NIVEAU_LIGNE[pa.ligne] || null;
+
+  const veutTutorat = pa.type === 'TUTORAT' && pole;
+  const veutEval = pa.type === 'EVALUATIONS' && pole;
+
+  // Supprimer les liaisons devenues obsolètes (changement/suppression de type)
+  if (ficheT && !veutTutorat) db.prepare('DELETE FROM tutorat WHERE id = ?').run(ficheT.id);
+  if (ficheE && !veutEval) db.prepare('DELETE FROM sessions_examen WHERE id = ?').run(ficheE.id);
+
+  if (veutTutorat) {
+    if (ficheT) {
+      db.prepare(`UPDATE tutorat SET date_debut=?, date_fin=?, niveau=?, updated_at=datetime('now') WHERE id=?`)
+        .run(pa.date_debut, pa.date_fin, niveau, ficheT.id);
+    } else {
+      db.prepare(`
+        INSERT INTO tutorat (annee_id, pole_id, niveau, date_debut, date_fin, statut_fiche, activite_id, created_by, observations)
+        VALUES (?, ?, ?, ?, ?, 'VALIDEE', ?, ?, ?)
+      `).run(pa.annee_id, pole.id, niveau, pa.date_debut, pa.date_fin, pa.id, userId, `Issue du planning annuel : ${pa.libelle}`);
+    }
+  }
+  if (veutEval) {
+    if (ficheE) {
+      db.prepare(`UPDATE sessions_examen SET date_demarrage=?, date_fin_prevue=?, niveau=?, type_evaluation=?, updated_at=datetime('now') WHERE id=?`)
+        .run(pa.date_debut, pa.date_fin, niveau, pa.sous_type === 'DEVOIRS' ? 'DEVOIR' : 'EVALUATION', ficheE.id);
+    } else {
+      db.prepare(`
+        INSERT INTO sessions_examen (annee_id, pole_id, niveau, session_num, type_evaluation,
+          date_demarrage, date_fin_prevue, activite_id, created_by, observations)
+        VALUES (?, ?, ?, 1, ?, ?, ?, ?, ?, ?)
+      `).run(pa.annee_id, pole.id, niveau, pa.sous_type === 'DEVOIRS' ? 'DEVOIR' : 'EVALUATION',
+        pa.date_debut, pa.date_fin, pa.id, userId, `Issue du planning annuel : ${pa.libelle}`);
+    }
+  }
 }
 
 // GET /api/planning?annee_id= — filtré selon le périmètre de visibilité du profil
@@ -133,7 +193,22 @@ router.post('/', auth, (req, res) => {
   const db = getDb();
   // Création strictement limitée au périmètre du profil
   if (!segmentsAutorises(req.user, db).includes(segment)) {
-    return res.status(403).json({ error: 'Vous ne pouvez créer des activités que dans votre périmètre (segment de votre entité).' });
+    return res.status(403).json({ error: 'Seuls les Responsables pédagogiques alimentent le planning (chacun pour son pôle).' });
+  }
+
+  // Une plage d'ÉVALUATIONS ne peut pas chevaucher les évaluations d'un autre pôle
+  if (type === 'EVALUATIONS') {
+    const pole = poleDuSegment(db, segment);
+    if (pole) {
+      const conflits = conflitEvalPlanning(db, { annee_id, pole_id: pole.id, date_debut, date_fin });
+      if (conflits.length > 0) {
+        const c = conflits[0];
+        return res.status(409).json({
+          error: `Conflit inter-pôles : le pôle ${c.pole_code} a déjà des évaluations du ${c.date_demarrage} au ${c.date_fin_prevue || c.date_demarrage}. Deux pôles ne peuvent pas être en évaluation simultanément.`,
+          conflit: true, conflits,
+        });
+      }
+    }
   }
 
   const r = db.prepare(`
@@ -142,13 +217,16 @@ router.post('/', auth, (req, res) => {
   `).run(annee_id, segment, ligne, libelle, date_debut, date_fin, couleur || null,
     type || null, type === 'EVALUATIONS' ? (sous_type || 'EXAMEN') : null, req.user.id);
 
+  // Liaison automatique : l'activité typée alimente le module Tutorat / Évaluations
+  synchroniserModule(db, r.lastInsertRowid, req.user.id);
+
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
     .run(req.user.id, 'CREATE_PLANNING', 'CALENDRIER', `${segment}/${ligne}: ${libelle}`);
 
   res.status(201).json(db.prepare('SELECT * FROM planning_activites WHERE id = ?').get(r.lastInsertRowid));
 });
 
-function appliquerModification(db, activiteId, payload) {
+function appliquerModification(db, activiteId, payload, userId) {
   const prev = db.prepare('SELECT * FROM planning_activites WHERE id = ?').get(activiteId);
   if (!prev) return false;
   db.prepare(`
@@ -159,7 +237,16 @@ function appliquerModification(db, activiteId, payload) {
     payload.type !== undefined ? payload.type : prev.type,
     payload.sous_type !== undefined ? payload.sous_type : prev.sous_type,
     activiteId);
+  // Répercuter sur le module lié (Tutorat / Évaluations)
+  synchroniserModule(db, activiteId, userId || prev.created_by);
   return true;
+}
+
+// Supprime une activité ET son entrée liée dans les modules
+function supprimerActivite(db, activiteId) {
+  db.prepare('DELETE FROM tutorat WHERE activite_id = ?').run(activiteId);
+  db.prepare('DELETE FROM sessions_examen WHERE activite_id = ?').run(activiteId);
+  db.prepare('DELETE FROM planning_activites WHERE id = ?').run(activiteId);
 }
 
 function descriptionActivite(a) {
@@ -178,7 +265,7 @@ router.put('/:id', auth, (req, res) => {
 
   // Le Directeur DFIP applique directement (c'est lui le validateur)
   if (req.user.role === 'DIRECTEUR') {
-    appliquerModification(db, req.params.id, payload);
+    appliquerModification(db, req.params.id, payload, req.user.id);
     db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
       .run(req.user.id, 'UPDATE_PLANNING', 'CALENDRIER', descriptionActivite(prev));
     return res.json(db.prepare('SELECT * FROM planning_activites WHERE id = ?').get(req.params.id));
@@ -207,7 +294,7 @@ router.delete('/:id', auth, (req, res) => {
   if (!peutEcrire(req.user, prev.segment, db)) return res.status(403).json({ error: 'Accès refusé' });
 
   if (req.user.role === 'DIRECTEUR') {
-    db.prepare('DELETE FROM planning_activites WHERE id = ?').run(req.params.id);
+    supprimerActivite(db, req.params.id); // supprime aussi l'entrée liée dans Tutorat/Évaluations
     db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
       .run(req.user.id, 'DELETE_PLANNING', 'CALENDRIER', descriptionActivite(prev));
     return res.json({ message: 'Activité supprimée' });
@@ -260,9 +347,9 @@ router.post('/demandes/:id/traiter', auth, requireRole('DIRECTEUR'), (req, res) 
   if (decision === 'VALIDEE') {
     if (dem.type_demande === 'SUPPRESSION') {
       // La suppression en cascade retire aussi la demande ; l'audit log conserve la trace
-      db.prepare('DELETE FROM planning_activites WHERE id = ?').run(dem.activite_id);
+      supprimerActivite(db, dem.activite_id); // + entrée liée Tutorat/Évaluations
     } else {
-      appliquerModification(db, dem.activite_id, JSON.parse(dem.payload || '{}'));
+      appliquerModification(db, dem.activite_id, JSON.parse(dem.payload || '{}'), req.user.id);
       db.prepare("UPDATE planning_demandes SET statut='VALIDEE', valide_par=?, traite_at=datetime('now') WHERE id=?")
         .run(req.user.id, dem.id);
     }
