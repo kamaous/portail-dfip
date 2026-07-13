@@ -1,6 +1,6 @@
 const express = require('express');
 const { getDb } = require('../db/connection');
-const { auth, requireRole } = require('../middleware/auth');
+const { auth, requireRole, hasRole } = require('../middleware/auth');
 const { notifierConcernes } = require('../services/notify');
 const { sendEmail } = require('../services/email');
 const { ROLES_RESTREINTS } = require('../config');
@@ -18,6 +18,27 @@ function toutEstOK(t) {
   return t.plateforme_cours === 'DISPONIBLE' && t.cours === 'DISPONIBLES'
     && t.enrolement_tuteurs === 'TERMINE' && t.enrolement_etudiants === 'TERMINE'
     && t.enrolement_enseignants === 'TERMINE';
+}
+
+/* Plages TUTORAT du Planning annuel (activités typées sur le segment du pôle) */
+const POLE_SEGMENT_T = { SEJA: 'PSEJA', STN: 'PSTN', LSHE: 'PLSHE' };
+function plagesTutorat(db, annee_id, poleId) {
+  const pole = db.prepare('SELECT code FROM poles WHERE id = ?').get(poleId);
+  if (!pole) return [];
+  return db.prepare(`
+    SELECT date_debut, date_fin, libelle FROM planning_activites
+    WHERE annee_id = ? AND type = 'TUTORAT' AND segment = ?
+    ORDER BY date_debut
+  `).all(annee_id, POLE_SEGMENT_T[pole.code] || '—');
+}
+// Si des plages TUTORAT existent pour le pôle, les dates de la fiche doivent s'y inscrire.
+function controlePlageTutorat(db, { annee_id, pole_id, date_debut, date_fin }) {
+  const plages = plagesTutorat(db, annee_id, pole_id);
+  if (plages.length === 0) return null; // pas de plage définie → pas de contrainte
+  const ok = plages.some(p => date_debut >= p.date_debut && (date_fin || date_debut) <= p.date_fin);
+  if (ok) return null;
+  const liste = plages.map(p => `${p.date_debut} → ${p.date_fin}`).join(' ; ');
+  return `Dates hors plage : le tutorat de votre pôle doit se tenir dans les plages du Planning annuel (${liste}).`;
 }
 
 function notifierRole(db, role, titre, message) {
@@ -106,13 +127,21 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
   }
   const db = getDb();
 
-  // Un responsable de formation ne crée que pour SON pôle
-  if (req.user.role === 'RESPONSABLE_FORMATION' && req.user.pole_id !== parseInt(b.pole_id)) {
+  // Un responsable de formation (ou pédagogique) ne crée que pour SON pôle
+  const estRFCreation = hasRole(req.user, 'RESPONSABLE_FORMATION') && !INDIC_ROLES.includes(req.user.role);
+  if (estRFCreation && req.user.pole_id !== parseInt(b.pole_id)) {
     return res.status(403).json({ error: 'Vous ne pouvez créer des fiches que pour votre pôle.' });
   }
 
+  // Cadrage par les plages TUTORAT du Planning annuel (si définies pour le pôle)
+  const errPlage = controlePlageTutorat(db, {
+    annee_id: b.annee_id, pole_id: parseInt(b.pole_id),
+    date_debut: b.date_debut, date_fin: b.date_fin,
+  });
+  if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
+
   // Soumise si créée par un responsable de formation, validée d'office sinon
-  const soumise = req.user.role === 'RESPONSABLE_FORMATION';
+  const soumise = estRFCreation;
   const statut_fiche = soumise ? 'SOUMISE' : 'VALIDEE';
 
   const r = db.prepare(`
@@ -175,7 +204,7 @@ router.put('/:id', auth, (req, res) => {
   if (!prev) return res.status(404).json({ error: 'Fiche introuvable' });
 
   const estChef = INDIC_ROLES.includes(req.user.role);
-  const estCreateurRF = req.user.role === 'RESPONSABLE_FORMATION' && prev.created_by === req.user.id;
+  const estCreateurRF = hasRole(req.user, 'RESPONSABLE_FORMATION') && prev.created_by === req.user.id;
   if (!estChef && !estCreateurRF) {
     return res.status(403).json({ error: 'Section PLATEFORMES ET TUTORATS réservée au Chef de division Technopédagogie.' });
   }

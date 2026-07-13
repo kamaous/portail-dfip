@@ -42,21 +42,24 @@ function codePoleUser(user, db) {
    - DIRECTEUR (DFIP) et DIRECTEUR_DES → DFIP & DES
    - ADMIN_PORTAIL → tous (administration technique)                     */
 function segmentsAutorises(user, db) {
+  // DFIP = administrateur du portail : accès complet (décision 13/07/2026)
+  if (user.role === 'DIRECTEUR' || user.role === 'ADMIN_PORTAIL') return SEGMENTS;
+  if (user.roles_effectifs?.includes('RESPONSABLE_POLE')) {
+    const code = codePoleUser(user, db);
+    return code && POLE_SEGMENT[code] ? [POLE_SEGMENT[code]] : [];
+  }
   switch (user.role) {
-    case 'ADMIN_PORTAIL': return SEGMENTS;
     case 'VICE_RECTEUR': return ['RECTORAT'];
-    case 'DIRECTEUR':
     case 'DIRECTEUR_DES': return ['DFIP_DES'];
-    case 'RESPONSABLE_POLE': {
-      const code = codePoleUser(user, db);
-      return code && POLE_SEGMENT[code] ? [POLE_SEGMENT[code]] : [];
-    }
     default: return [];
   }
 }
 
-/* Périmètre de VISIBILITÉ : les profils rattachés à un pôle ne voient que leur segment */
+/* Périmètre de VISIBILITÉ : les responsables rattachés à un pôle ne voient que leur segment.
+   Les visiteurs (Recteur, étudiants...) consultent TOUT le planning en lecture seule. */
+const { ROLES_VISITEURS } = require('../config');
 function segmentsVisibles(user, db) {
+  if (ROLES_VISITEURS.includes(user.role)) return SEGMENTS;
   if (ROLES_RESTREINTS.includes(user.role)) {
     const code = codePoleUser(user, db);
     return code && POLE_SEGMENT[code] ? [POLE_SEGMENT[code]] : [];
@@ -96,25 +99,48 @@ router.get('/perimetre', auth, (req, res) => {
   });
 });
 
+// GET /api/planning/plages?type=TUTORAT|EVALUATIONS&annee_id= — plages typées par pôle
+// (alimente dynamiquement les modules Tutorat et Évaluations)
+router.get('/plages', auth, (req, res) => {
+  const db = getDb();
+  const type = req.query.type === 'TUTORAT' ? 'TUTORAT' : 'EVALUATIONS';
+  const annee_id = req.query.annee_id
+    || db.prepare('SELECT id FROM annees_academiques WHERE active = 1 LIMIT 1').get()?.id;
+  if (!annee_id) return res.json([]);
+  const rows = db.prepare(`
+    SELECT pa.segment, pa.ligne, pa.libelle, pa.type, pa.sous_type, pa.date_debut, pa.date_fin
+    FROM planning_activites pa
+    WHERE pa.annee_id = ? AND pa.type = ?
+    ORDER BY pa.date_debut
+  `).all(annee_id, type);
+  const segPole = { PSEJA: 'SEJA', PSTN: 'STN', PLSHE: 'LSHE' };
+  res.json(rows.map(r => ({ ...r, pole_code: segPole[r.segment] || null })));
+});
+
 // POST /api/planning
 router.post('/', auth, (req, res) => {
-  const { annee_id, segment, ligne, libelle, date_debut, date_fin, couleur } = req.body;
+  const { annee_id, segment, ligne, libelle, date_debut, date_fin, couleur, type, sous_type } = req.body;
   if (!annee_id || !segment || !ligne || !libelle || !date_debut || !date_fin) {
     return res.status(400).json({ error: 'Année, segment, ligne, libellé et dates requis' });
   }
   if (!SEGMENTS.includes(segment)) return res.status(400).json({ error: 'Segment invalide' });
   if (date_fin < date_debut) return res.status(400).json({ error: 'La date de fin doit suivre la date de début' });
+  if (type && !['TUTORAT', 'EVALUATIONS'].includes(type)) return res.status(400).json({ error: 'Type invalide' });
+  if (type === 'EVALUATIONS' && sous_type && !['EXAMEN', 'DEVOIRS'].includes(sous_type)) {
+    return res.status(400).json({ error: 'Sous-type invalide (Examen ou Devoirs)' });
+  }
 
   const db = getDb();
-  // Création strictement limitée au périmètre du profil (y compris pour le Directeur DFIP)
+  // Création strictement limitée au périmètre du profil
   if (!segmentsAutorises(req.user, db).includes(segment)) {
     return res.status(403).json({ error: 'Vous ne pouvez créer des activités que dans votre périmètre (segment de votre entité).' });
   }
 
   const r = db.prepare(`
-    INSERT INTO planning_activites (annee_id, segment, ligne, libelle, date_debut, date_fin, couleur, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(annee_id, segment, ligne, libelle, date_debut, date_fin, couleur || null, req.user.id);
+    INSERT INTO planning_activites (annee_id, segment, ligne, libelle, date_debut, date_fin, couleur, type, sous_type, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(annee_id, segment, ligne, libelle, date_debut, date_fin, couleur || null,
+    type || null, type === 'EVALUATIONS' ? (sous_type || 'EXAMEN') : null, req.user.id);
 
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
     .run(req.user.id, 'CREATE_PLANNING', 'CALENDRIER', `${segment}/${ligne}: ${libelle}`);
@@ -126,10 +152,13 @@ function appliquerModification(db, activiteId, payload) {
   const prev = db.prepare('SELECT * FROM planning_activites WHERE id = ?').get(activiteId);
   if (!prev) return false;
   db.prepare(`
-    UPDATE planning_activites SET ligne=?, libelle=?, date_debut=?, date_fin=?, couleur=? WHERE id=?
+    UPDATE planning_activites SET ligne=?, libelle=?, date_debut=?, date_fin=?, couleur=?, type=?, sous_type=? WHERE id=?
   `).run(payload.ligne ?? prev.ligne, payload.libelle ?? prev.libelle,
     payload.date_debut ?? prev.date_debut, payload.date_fin ?? prev.date_fin,
-    payload.couleur !== undefined ? payload.couleur : prev.couleur, activiteId);
+    payload.couleur !== undefined ? payload.couleur : prev.couleur,
+    payload.type !== undefined ? payload.type : prev.type,
+    payload.sous_type !== undefined ? payload.sous_type : prev.sous_type,
+    activiteId);
   return true;
 }
 
@@ -144,8 +173,8 @@ router.put('/:id', auth, (req, res) => {
   if (!prev) return res.status(404).json({ error: 'Activité introuvable' });
   if (!peutEcrire(req.user, prev.segment, db)) return res.status(403).json({ error: 'Accès refusé' });
 
-  const { ligne, libelle, date_debut, date_fin, couleur } = req.body;
-  const payload = { ligne, libelle, date_debut, date_fin, couleur };
+  const { ligne, libelle, date_debut, date_fin, couleur, type, sous_type } = req.body;
+  const payload = { ligne, libelle, date_debut, date_fin, couleur, type, sous_type };
 
   // Le Directeur DFIP applique directement (c'est lui le validateur)
   if (req.user.role === 'DIRECTEUR') {

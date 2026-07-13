@@ -5,8 +5,11 @@ import {
   LayoutDashboard, Users, CheckSquare, BookOpen, ClipboardList,
   AlertTriangle, Bell, LogOut, Settings,
   Building2, Calendar, ClipboardCheck, CalendarOff, Video,
-  PanelLeftClose, PanelLeftOpen, GanttChartSquare
+  PanelLeftClose, PanelLeftOpen, GanttChartSquare, Gauge
 } from 'lucide-react';
+
+// Rôles « visiteurs » : lecture seule du planning annuel uniquement
+const ROLES_VISITEURS = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'];
 import NotifPanel from './NotifPanel';
 
 const ROLE_COLORS = {
@@ -85,8 +88,17 @@ export default function Layout({ children }) {
 
         {/* Navigation */}
         <nav className={`flex-1 overflow-y-auto nav-scroll py-3 space-y-1 ${open ? 'px-3' : 'px-2'}`}>
+          {ROLES_VISITEURS.includes(user?.role) ? (
+            <>
+              {/* Visiteur : consultation du planning annuel uniquement */}
+              <SectionTitle open={open}>Consultation</SectionTitle>
+              <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
+            </>
+          ) : (
+            <>
           <SectionTitle open={open}>Principal</SectionTitle>
           <NavItem to="/" icon={LayoutDashboard} label="Tableau de bord" end open={open} />
+          <NavItem to="/resume" icon={Gauge} label="Résumé" open={open} />
           <NavItem to="/taches" icon={CheckSquare} label="Tâches" open={open} />
           <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
           <NavItem to="/tutorat" icon={BookOpen} label="Tutorat" open={open} />
@@ -103,6 +115,8 @@ export default function Layout({ children }) {
               {(isAdmin || isDirecteur) && (
                 <NavItem to="/connexions" icon={Settings} label="Connexions" open={open} />
               )}
+            </>
+          )}
             </>
           )}
         </nav>

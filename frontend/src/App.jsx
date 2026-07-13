@@ -10,6 +10,12 @@ import Incidents from './pages/Incidents';
 import Tutorat from './pages/Tutorat';
 import Evaluations from './pages/Evaluations';
 import Reunions from './pages/Reunions';
+import Resume from './pages/Resume';
+import PlanningPublic from './pages/PlanningPublic';
+
+// Rôles « visiteurs » : lecture seule du planning annuel uniquement
+export const ROLES_VISITEURS = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'];
+const ROLES_METIER = ['DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION'];
 import CalendrierAcademique from './pages/CalendrierAcademique';
 import PlanningAnnuel from './pages/PlanningAnnuel';
 import Utilisateurs from './pages/Utilisateurs';
@@ -40,23 +46,33 @@ function AppRoutes() {
         <ProtectedRoute><ChangePassword /></ProtectedRoute>
       } />
 
+      {/* Accès PUBLIC (sans compte) : planning annuel en lecture seule */}
+      <Route path="/public" element={<PlanningPublic />} />
+
       <Route path="/" element={
         <ProtectedRoute>
-          <Layout><Dashboard /></Layout>
+          {ROLES_VISITEURS.includes(user?.role)
+            ? <Navigate to="/planning" replace />
+            : <Layout><Dashboard /></Layout>}
+        </ProtectedRoute>
+      } />
+      <Route path="/resume" element={
+        <ProtectedRoute roles={ROLES_METIER}>
+          <Layout><Resume /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/taches" element={
-        <ProtectedRoute>
+        <ProtectedRoute roles={ROLES_METIER}>
           <Layout><Taches /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/tutorat" element={
-        <ProtectedRoute>
+        <ProtectedRoute roles={ROLES_METIER}>
           <Layout><Tutorat /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/evaluations" element={
-        <ProtectedRoute>
+        <ProtectedRoute roles={ROLES_METIER}>
           <Layout><Evaluations /></Layout>
         </ProtectedRoute>
       } />
@@ -65,17 +81,17 @@ function AppRoutes() {
       <Route path="/sessions" element={<Navigate to="/evaluations" replace />} />
       <Route path="/calendriers" element={<Navigate to="/" replace />} />
       <Route path="/incidents" element={
-        <ProtectedRoute>
+        <ProtectedRoute roles={ROLES_METIER}>
           <Layout><Incidents /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/reunions" element={
-        <ProtectedRoute>
+        <ProtectedRoute roles={ROLES_METIER}>
           <Layout><Reunions /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/calendrier-academique" element={
-        <ProtectedRoute>
+        <ProtectedRoute roles={ROLES_METIER}>
           <Layout><CalendrierAcademique /></Layout>
         </ProtectedRoute>
       } />

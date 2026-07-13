@@ -36,8 +36,8 @@ const POLES_SEG = {
 const ETAT_BAR = { CALENDRIER_DISPONIBLE: null, EVAL_EN_COURS: '#f59e0b', EVAL_TERMINEES: '#16a34a' };
 
 /* ===== Modal de création (Responsable de formation, dates dans les plages du planning) ===== */
-function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated }) {
-  const estRF = user?.role === 'RESPONSABLE_FORMATION';
+function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated, onConflit }) {
+  const estRF = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE'].includes(user?.role);
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
@@ -57,6 +57,17 @@ function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated }
   const horsPlage = plages?.length > 0 && form.date_demarrage && form.date_fin_prevue &&
     !plages.some(p => form.date_demarrage >= p.date_debut && form.date_fin_prevue <= p.date_fin);
 
+  // Pré-contrôle du conflit inter-pôles en direct
+  const [conflitsLive, setConflitsLive] = useState([]);
+  useEffect(() => {
+    setConflitsLive([]);
+    if (!form.pole_id || !form.annee_id || !form.date_demarrage) return;
+    api.post('/evaluations/check-conflit', {
+      annee_id: form.annee_id, pole_id: form.pole_id,
+      date_demarrage: form.date_demarrage, date_fin_prevue: form.date_fin_prevue,
+    }).then(r => setConflitsLive(r.data.conflits || [])).catch(() => {});
+  }, [form.pole_id, form.annee_id, form.date_demarrage, form.date_fin_prevue]);
+
   async function submit(e) {
     e.preventDefault();
     if (!form.formation_id) return toast.error('Sélectionnez une formation');
@@ -67,7 +78,11 @@ function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated }
       toast.success('Évaluation enregistrée — concernés notifiés');
       onCreated(); onClose();
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Erreur', { duration: 6000 });
+      if (err.response?.data?.conflit) {
+        onConflit(err.response.data);   // popup explicite de conflit inter-pôles
+      } else {
+        toast.error(err.response?.data?.error || 'Erreur', { duration: 6000 });
+      }
     } finally { setLoading(false); }
   }
 
@@ -133,6 +148,13 @@ function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated }
             </div>
           </div>
           {horsPlage && <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages autorisées — l'enregistrement sera refusé.</p>}
+          {conflitsLive.length > 0 && (
+            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
+              ⛔ <strong>Conflit inter-pôles détecté :</strong> le pôle <strong>{conflitsLive[0].pole_code}</strong> a déjà
+              des évaluations du {conflitsLive[0].date_demarrage} au {conflitsLive[0].date_fin_prevue || conflitsLive[0].date_demarrage}.
+              Deux pôles ne peuvent pas être en évaluation simultanément — changez les dates.
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
@@ -164,6 +186,7 @@ export default function Evaluations() {
   const [motifModal, setMotifModal] = useState(null);
   const [selection, setSelection] = useState([]);       // délibérations groupées
   const [delibModal, setDelibModal] = useState(false);
+  const [conflitInfo, setConflitInfo] = useState(null); // popup conflit inter-pôles
 
   function load() {
     setLoading(true);
@@ -188,7 +211,11 @@ export default function Evaluations() {
     setItems(ss => ss.map(s => s.id === id ? { ...s, ...patch } : s));
     try { await api.put(`/evaluations/${id}`, patch); toast.success('Mise à jour enregistrée'); load(); }
     catch (err) {
-      toast.error(err.response?.data?.error || 'Erreur', { duration: 6000 });
+      if (err.response?.data?.conflit) {
+        setConflitInfo(err.response.data);   // popup explicite : conflit inter-pôles
+      } else {
+        toast.error(err.response?.data?.error || 'Erreur', { duration: 6000 });
+      }
       load();
     }
   }
@@ -211,14 +238,14 @@ export default function Evaluations() {
   const canDelete = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Suivi : Chef de division DFE
   const canSuivi = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
-  // Création + dates : Responsables de formation
-  const canCreate = ['RESPONSABLE_FORMATION', ...['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL']].includes(user?.role);
-  const estRF = user?.role === 'RESPONSABLE_FORMATION';
-  // Délibérations : Directeurs de pôle
-  const canDelib = ['RESPONSABLE_POLE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Création + dates : Responsables de formation + Responsable pédagogique (héritage)
+  const canCreate = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  const estRF = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE'].includes(user?.role);
+  // Délibérations : Directeurs de pôle + Responsable pédagogique (héritage)
+  const canDelib = ['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
 
   // Profils rattachés à un pôle : vue limitée
-  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
+  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
   const poleCodeUser = ROLES_POLE.includes(user?.role) && user?.pole_id
     ? poles.find(p => p.id === user.pole_id)?.code || null : null;
   useEffect(() => { if (poleCodeUser) setSegment(poleCodeUser); }, [poleCodeUser]);
@@ -394,7 +421,35 @@ export default function Evaluations() {
         </div>
       )}
 
-      {modal && <ModalEvaluation poles={poles} promotions={promotions} annees={annees} user={user} onClose={() => setModal(false)} onCreated={load} />}
+      {modal && <ModalEvaluation poles={poles} promotions={promotions} annees={annees} user={user} onClose={() => setModal(false)} onCreated={load} onConflit={setConflitInfo} />}
+
+      {/* Popup explicite : conflit d'examens entre pôles */}
+      {conflitInfo && (
+        <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+            <div className="bg-red-600 text-white px-5 py-4">
+              <h2 className="font-bold text-lg">⛔ Conflit d'examens entre pôles</h2>
+              <p className="text-red-100 text-xs mt-0.5">Deux pôles ne peuvent jamais être en évaluation simultanément.</p>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-sm text-slate-700">{conflitInfo.error}</p>
+              <div className="bg-red-50 border border-red-100 rounded-xl divide-y divide-red-100">
+                {(conflitInfo.conflits || []).map(c => (
+                  <div key={c.id} className="px-3 py-2 text-xs">
+                    <p className="font-bold text-red-800">{c.pole_nom}</p>
+                    <p className="text-slate-600">
+                      {c.formation_nom || 'Formation —'} · {c.type_evaluation === 'DEVOIR' ? 'Devoir' : 'Examen'} · Session {c.session_num}
+                    </p>
+                    <p className="text-red-700 font-semibold">📅 {c.date_demarrage} → {c.date_fin_prevue || c.date_demarrage}</p>
+                  </div>
+                ))}
+              </div>
+              <p className="text-xs text-slate-500">Choisissez une autre période pour valider cette évaluation.</p>
+              <button onClick={() => setConflitInfo(null)} className="btn-danger w-full">J'ai compris — je change la date</button>
+            </div>
+          </div>
+        </div>
+      )}
       {motifModal && (
         <ModalMotif data={motifModal} onClose={() => { setMotifModal(null); load(); }}
           onConfirm={async (motif) => {
@@ -430,7 +485,7 @@ export default function Evaluations() {
 /* ===== Carte d'une évaluation ===== */
 function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, userPoleId, userRole, selectable, selected, onToggleSel }) {
   const editDates = (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE';
-  const editDelib = (userRole === 'RESPONSABLE_POLE' ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
+  const editDelib = (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
   return (
     <div className={`card relative ${s.etat === 'ANNULE' ? 'opacity-60' : ''} ${selected ? 'ring-2 ring-purple-400' : ''}`}>
       {selectable && (

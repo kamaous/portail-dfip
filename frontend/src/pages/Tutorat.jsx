@@ -148,7 +148,7 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
 }
 
 function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
-  const estRF = user?.role === 'RESPONSABLE_FORMATION';
+  const estRF = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE'].includes(user?.role);
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
@@ -156,6 +156,17 @@ function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
     date_debut: '', date_fin: '',
   });
   const [loading, setLoading] = useState(false);
+  const [plages, setPlages] = useState(null);
+
+  // Plages TUTORAT du Planning annuel pour le pôle choisi (cadrage des dates)
+  useEffect(() => {
+    if (!form.pole_id || !form.annee_id) { setPlages(null); return; }
+    api.get(`/planning/plages?type=TUTORAT&annee_id=${form.annee_id}`)
+      .then(r => {
+        const code = poles.find(p => p.id === parseInt(form.pole_id))?.code;
+        setPlages(r.data.filter(p => p.pole_code === code));
+      }).catch(() => setPlages([]));
+  }, [form.pole_id, form.annee_id, poles]);
 
   async function submit(e) {
     e.preventDefault();
@@ -196,6 +207,16 @@ function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
             </select>
           </div>
           <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
+
+          {/* Plages TUTORAT du planning annuel */}
+          {form.pole_id && plages !== null && plages.length > 0 && (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+              📅 <strong>Plages tutorat du Planning annuel :</strong>{' '}
+              {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
+              <br />Les dates de la fiche doivent s'y inscrire.
+            </div>
+          )}
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Date début tutorat *</label>
@@ -427,13 +448,13 @@ export default function Tutorat() {
   // Section PLATEFORMES ET TUTORATS : Chef division Technopédagogie (aligné sur le backend)
   const canWrite = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   const canValider = canWrite;
-  // Création des fiches : initiée par les Responsables de formation
-  const canCreate = ['RESPONSABLE_FORMATION', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Création des fiches : Responsables de formation + Responsable pédagogique (héritage)
+  const canCreate = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   const canSetDemarrage = ['DIRECTEUR', 'CHEF_DIV_TECHNOPEDAGOGIE', 'ADMIN_PORTAIL'].includes(user?.role);
   const anneeActive = annees.find(a => a.active);
 
   // Profils rattachés à un pôle : vue limitée à leur pôle uniquement
-  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
+  const ROLES_POLE = ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT'];
   const poleCodeUser = ROLES_POLE.includes(user?.role) && user?.pole_id
     ? poles.find(p => p.id === user.pole_id)?.code || null
     : null;

@@ -31,6 +31,7 @@ app.use('/api/calendrier-academique', require('./routes/feries'));
 app.use('/api/reunions', require('./routes/reunions'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/planning', require('./routes/planning'));
+app.use('/api/public', require('./routes/public')); // visiteur sans compte : planning en lecture seule
 
 // Nettoyage des sessions expirées (toutes les heures)
 setInterval(() => {

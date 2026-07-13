@@ -23,9 +23,18 @@ module.exports = {
   ROLES: [
     'RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'CHEF_SERVICE',
     'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION',
-    'RESPONSABLE_POLE', 'RESPONSABLE_FORMATION',
+    'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION',
     'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'
   ],
+
+  // Héritage de rôles : le Responsable pédagogique du pôle cumule
+  // les privilèges du Directeur de pôle ET du Responsable de formation.
+  ROLE_HERITAGE: {
+    RESPONSABLE_PEDAGOGIQUE: ['RESPONSABLE_POLE', 'RESPONSABLE_FORMATION'],
+  },
+
+  // Rôles « visiteurs » : accès en LECTURE SEULE au planning annuel uniquement
+  ROLES_VISITEURS: ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'],
 
   ROLE_LABELS: {
     RECTEUR: 'Recteur',
@@ -36,6 +45,7 @@ module.exports = {
     CHEF_DIV_TECHNOPEDAGOGIE: 'Chef division Technopédagogie',
     CHEF_DIV_EVALUATION: 'Chef division DFE (Formation & Évaluations)',
     RESPONSABLE_POLE: 'Directeur de Pôle',
+    RESPONSABLE_PEDAGOGIQUE: 'Responsable pédagogique du Pôle',
     RESPONSABLE_FORMATION: 'Responsable de Formation',
     MEMBRE_POLE: 'Membre de Pôle',
     SCOLARITE: 'Scolarité',
@@ -45,5 +55,5 @@ module.exports = {
   },
 
   // Rôles à visibilité restreinte à leur pôle (voient uniquement ce qui les concerne)
-  ROLES_RESTREINTS: ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT']
+  ROLES_RESTREINTS: ['MEMBRE_POLE', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'ENSEIGNANT', 'ETUDIANT']
 };

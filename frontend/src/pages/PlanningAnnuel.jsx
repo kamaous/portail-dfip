@@ -197,6 +197,7 @@ function ModalActivite({ annee, canSegments, defaultSegment, onClose, onCreated 
   const [form, setForm] = useState({
     segment: (defaultSegment && canSegments.includes(defaultSegment) ? defaultSegment : canSegments[0]) || 'DFIP_DES',
     ligne: '', libelle: '', date_debut: '', date_fin: '',
+    type: '', sous_type: 'EXAMEN',
   });
   const [loading, setLoading] = useState(false);
   const lignes = LIGNES_DEFAUT[form.segment] || [];
@@ -239,6 +240,31 @@ function ModalActivite({ annee, canSegments, defaultSegment, onClose, onCreated 
             <input value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))}
               placeholder="Ex: S1, S1N (rattrapage), Réinscriptions..." required />
           </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Type d'activité</label>
+              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+                <option value="">— Générique —</option>
+                <option value="TUTORAT">Tutorat</option>
+                <option value="EVALUATIONS">Évaluations</option>
+              </select>
+            </div>
+            {form.type === 'EVALUATIONS' && (
+              <div>
+                <label className="text-sm font-medium text-slate-700 block mb-1">Sous-type *</label>
+                <select value={form.sous_type} onChange={e => setForm(f => ({ ...f, sous_type: e.target.value }))}>
+                  <option value="EXAMEN">Examen</option>
+                  <option value="DEVOIRS">Devoirs</option>
+                </select>
+              </div>
+            )}
+          </div>
+          {form.type && (
+            <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl p-2.5 -mt-1">
+              💡 Cette plage alimentera automatiquement le module <strong>{form.type === 'TUTORAT' ? 'Tutorat' : 'Évaluations'}</strong> :
+              les dates saisies par les responsables devront s'y inscrire.
+            </p>
+          )}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Début *</label>
@@ -530,8 +556,11 @@ export default function PlanningAnnuel() {
                                 className={`absolute rounded-md flex flex-col justify-center px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-1.5 bottom-1.5 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
                                 style={{ left: `${l}%`, width: `${w}%`, background: a.couleur || seg.color }}
                               >
-                                <span className="truncate leading-tight">{a.libelle}</span>
-                                {focus && <span className="text-[10px] font-normal opacity-80 truncate leading-tight">{fmt(a.date_debut)} → {fmt(a.date_fin)}</span>}
+                                <span className="truncate leading-tight">
+                                  {a.type === 'TUTORAT' ? '📚 ' : a.type === 'EVALUATIONS' ? (a.sous_type === 'DEVOIRS' ? '📝 ' : '🧪 ') : ''}
+                                  {a.libelle}
+                                </span>
+                                {focus && <span className="text-[10px] font-normal opacity-80 truncate leading-tight">{fmt(a.date_debut)} → {fmt(a.date_fin)}{a.type ? ` · ${a.type === 'TUTORAT' ? 'Tutorat' : `Évaluations (${a.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'})`}` : ''}</span>}
                               </div>
                             );
                           })}

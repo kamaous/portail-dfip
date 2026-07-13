@@ -1,6 +1,6 @@
 const express = require('express');
 const { getDb } = require('../db/connection');
-const { auth, requireRole } = require('../middleware/auth');
+const { auth, requireRole, hasRole } = require('../middleware/auth');
 const { notifierConcernes, checkDateBloquee } = require('../services/notify');
 const { ROLES_RESTREINTS } = require('../config');
 
@@ -16,15 +16,44 @@ const CREATE_ROLES = ['RESPONSABLE_FORMATION', ...SUIVI_ROLES];
 const DELIB_ROLES = ['RESPONSABLE_POLE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
 
 /* ===== Plages d'évaluations définies dans le Planning annuel =====
-   (segment DFIP & DES, lignes « Évaluations SEJA / STN / LSHE ») */
+   Sources (union) : activités TYPÉES « EVALUATIONS » du segment du pôle
+   + compatibilité : lignes « Évaluations SEJA / STN / LSHE » du segment DFIP & DES. */
+const POLE_SEGMENT = { SEJA: 'PSEJA', STN: 'PSTN', LSHE: 'PLSHE' };
 function plagesEvaluations(db, annee_id, poleId) {
   const pole = db.prepare('SELECT code FROM poles WHERE id = ?').get(poleId);
   if (!pole) return [];
   return db.prepare(`
-    SELECT date_debut, date_fin, libelle FROM planning_activites
-    WHERE annee_id = ? AND segment = 'DFIP_DES' AND ligne = ?
+    SELECT date_debut, date_fin, libelle, sous_type FROM planning_activites
+    WHERE annee_id = ?
+      AND (
+        (type = 'EVALUATIONS' AND segment = ?)
+        OR (segment = 'DFIP_DES' AND ligne = ?)
+      )
     ORDER BY date_debut
-  `).all(annee_id, `Évaluations ${pole.code}`);
+  `).all(annee_id, POLE_SEGMENT[pole.code] || '—', `Évaluations ${pole.code}`);
+}
+
+/* ===== Conflit inter-pôles =====
+   Règle métier : deux pôles ne doivent JAMAIS avoir des évaluations programmées
+   en simultané — ici : chevauchement des périodes démarrage → clôture. */
+function conflitsInterPoles(db, { annee_id, pole_id, date_demarrage, date_fin_prevue, exclure_id }) {
+  if (!date_demarrage) return [];
+  const fin = date_fin_prevue || date_demarrage;
+  return db.prepare(`
+    SELECT se.id, se.date_demarrage, se.date_fin_prevue, se.session_num, se.type_evaluation,
+           p.code as pole_code, p.nom as pole_nom, f.nom as formation_nom
+    FROM sessions_examen se
+    JOIN poles p ON p.id = se.pole_id
+    LEFT JOIN formations f ON f.id = se.formation_id
+    WHERE se.annee_id = ?
+      AND se.pole_id != ?
+      AND se.etat != 'ANNULE'
+      AND se.id != ?
+      AND se.date_demarrage IS NOT NULL
+      AND se.date_demarrage <= ?
+      AND COALESCE(se.date_fin_prevue, se.date_demarrage) >= ?
+    ORDER BY se.date_demarrage
+  `).all(annee_id, pole_id, exclure_id || -1, fin, date_demarrage);
 }
 
 function dansUnePlage(plages, d1, d2) {
@@ -36,7 +65,7 @@ function dansUnePlage(plages, d1, d2) {
 function controlePlage(db, user, { annee_id, pole_id, date_demarrage, date_fin_prevue }) {
   if (!date_demarrage) return null;
   const plages = plagesEvaluations(db, annee_id, pole_id);
-  const estRF = user.role === 'RESPONSABLE_FORMATION';
+  const estRF = hasRole(user, 'RESPONSABLE_FORMATION');
   if (plages.length === 0) {
     return estRF
       ? "Aucune plage d'évaluations n'est définie dans le Planning annuel pour votre pôle. Impossible de fixer des dates."
@@ -92,6 +121,14 @@ router.post('/check-date', auth, (req, res) => {
   res.json(checkDateBloquee(req.body.date));
 });
 
+// POST /api/evaluations/check-conflit — pré-contrôle du conflit inter-pôles (pour l'UI)
+router.post('/check-conflit', auth, (req, res) => {
+  const db = getDb();
+  const { annee_id, pole_id, date_demarrage, date_fin_prevue, exclure_id } = req.body;
+  if (!annee_id || !pole_id || !date_demarrage) return res.json({ conflits: [] });
+  res.json({ conflits: conflitsInterPoles(db, { annee_id, pole_id, date_demarrage, date_fin_prevue, exclure_id }) });
+});
+
 /* ===== Création (Responsables de formation, dans les plages du planning) ===== */
 router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
   const { annee_id, pole_id, promotion_id, formation_id, niveau, semestre_code, session_num,
@@ -105,14 +142,26 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
 
   const db = getDb();
 
-  // Un responsable de formation ne crée que pour SON pôle
-  if (req.user.role === 'RESPONSABLE_FORMATION' && req.user.pole_id !== parseInt(pole_id)) {
+  // Un responsable de formation (ou pédagogique) ne crée que pour SON pôle
+  if (hasRole(req.user, 'RESPONSABLE_FORMATION') && !['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role)
+      && req.user.pole_id !== parseInt(pole_id)) {
     return res.status(403).json({ error: 'Vous ne pouvez renseigner que les évaluations de votre pôle.' });
   }
 
   // Dates impérativement dans les plages du Planning annuel
   const errPlage = controlePlage(db, req.user, { annee_id, pole_id, date_demarrage, date_fin_prevue });
   if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
+
+  // RÈGLE MÉTIER : jamais deux pôles en évaluation simultanément (chevauchement de périodes)
+  const conflits = conflitsInterPoles(db, { annee_id, pole_id, date_demarrage, date_fin_prevue });
+  if (conflits.length > 0) {
+    const c = conflits[0];
+    return res.status(409).json({
+      error: `Conflit inter-pôles : le pôle ${c.pole_code} a déjà des évaluations du ${c.date_demarrage} au ${c.date_fin_prevue || c.date_demarrage}. Deux pôles ne peuvent pas être en évaluation simultanément — changez les dates.`,
+      conflit: true,
+      conflits,
+    });
+  }
 
   // Jamais un jour férié / vacances
   const blk = checkDateBloquee(date_demarrage);
@@ -152,8 +201,8 @@ router.put('/:id', auth, (req, res) => {
           delib_etat, date_deliberation, etat, observations, motif } = req.body;
 
   const estSuivi = SUIVI_ROLES.includes(req.user.role);
-  const estRF = req.user.role === 'RESPONSABLE_FORMATION' && req.user.pole_id === prev.pole_id;
-  const estDP = req.user.role === 'RESPONSABLE_POLE' && req.user.pole_id === prev.pole_id;
+  const estRF = hasRole(req.user, 'RESPONSABLE_FORMATION') && req.user.pole_id === prev.pole_id;
+  const estDP = hasRole(req.user, 'RESPONSABLE_POLE') && req.user.pole_id === prev.pole_id;
   const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
 
   // --- Champs de suivi (Chef de division DFE) ---
@@ -173,6 +222,22 @@ router.put('/:id', auth, (req, res) => {
       date_fin_prevue: date_fin_prevue ?? prev.date_fin_prevue,
     });
     if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
+
+    // Conflit inter-pôles sur les nouvelles dates
+    const conflits = conflitsInterPoles(db, {
+      annee_id: prev.annee_id, pole_id: prev.pole_id,
+      date_demarrage: date_demarrage ?? prev.date_demarrage,
+      date_fin_prevue: date_fin_prevue ?? prev.date_fin_prevue,
+      exclure_id: prev.id,
+    });
+    if (conflits.length > 0) {
+      const c = conflits[0];
+      return res.status(409).json({
+        error: `Conflit inter-pôles : le pôle ${c.pole_code} a déjà des évaluations du ${c.date_demarrage} au ${c.date_fin_prevue || c.date_demarrage}. Changez les dates.`,
+        conflit: true,
+        conflits,
+      });
+    }
   }
 
   // --- Délibérations (Directeurs de pôle, après « Évaluations terminées ») ---
@@ -259,10 +324,11 @@ router.post('/deliberations', auth, requireRole(...DELIB_ROLES), (req, res) => {
     UPDATE sessions_examen SET delib_etat=?, date_deliberation=?, deliberation=?, updated_at=datetime('now') WHERE id=?
   `);
 
+  const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
   for (const id of ids) {
     const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(id);
     if (!s) { resultats.refusees.push({ id, raison: 'introuvable' }); continue; }
-    if (req.user.role === 'RESPONSABLE_POLE' && req.user.pole_id !== s.pole_id) {
+    if (!estDirection && req.user.pole_id !== s.pole_id) {
       resultats.refusees.push({ id, raison: 'hors de votre pôle' }); continue;
     }
     if (s.etat_eval !== 'EVAL_TERMINEES') {

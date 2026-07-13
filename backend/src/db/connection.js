@@ -456,6 +456,17 @@ function runMigrations() {
     delib_etat:             "TEXT NOT NULL DEFAULT 'PAS_ENCORE'",          // PAS_ENCORE, PREVUE, TERMINEE
   });
 
+  // Planning : type d'activité (alimente dynamiquement les modules Tutorat / Évaluations)
+  addColumns('planning_activites', {
+    type:      'TEXT',   // TUTORAT | EVALUATIONS | NULL (activité générique)
+    sous_type: 'TEXT',   // pour EVALUATIONS : EXAMEN | DEVOIRS
+  });
+  // Typage rétroactif des plages d'évaluations historiques (lignes « Évaluations XXX »)
+  db.exec(`
+    UPDATE planning_activites SET type = 'EVALUATIONS', sous_type = COALESCE(sous_type, 'EXAMEN')
+    WHERE type IS NULL AND ligne LIKE 'Évaluations %';
+  `);
+
   // Incidents : types officiels + conséquences structurées avec périmètre
   addColumns('incidents', {
     conseq_eval:      'TEXT',   // REPORT, ANNULATION, RALLONGE, ARRET, AUTRE
