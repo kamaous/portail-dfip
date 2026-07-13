@@ -124,10 +124,10 @@ export default function PlanningPublic() {
                         const barres = acts.filter(a => a.ligne === ligne);
                         return (
                           <div key={ligne} className="flex border-t border-slate-50">
-                            <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-1.5 text-xs'}`} title={ligne}>
+                            <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
                               {ligne}
                             </div>
-                            <div className={`flex-1 relative ${focus ? 'h-12' : 'h-8'}`}>
+                            <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                               <FondGrille tl={tl} />
                               <Overlays vacances={data.vacances} feries={feriesRange} tl={tl} />
                               {barres.map(a => {

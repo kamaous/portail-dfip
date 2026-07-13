@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, ChevronRight, GanttChartSquare, LayoutGrid } from 'lucide-react';
+import { Plus, GanttChartSquare, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 /* Les 5 segments institutionnels (couleurs alignées sur le fichier Excel) */
@@ -292,7 +292,6 @@ export default function PlanningAnnuel() {
   const [activites, setActivites] = useState([]);
   const [vacances, setVacances] = useState([]);
   const [feries, setFeries] = useState([]);
-  const [collapsed, setCollapsed] = useState({});
   const [segmentActif, setSegmentActif] = useState(null); // null = vue globale (par défaut)
   const [zoom, setZoom] = useState({ mode: 'ANNEE' });
   const [modal, setModal] = useState(false);
@@ -384,7 +383,6 @@ export default function PlanningAnnuel() {
           <p className="text-slate-500 text-sm">Calendrier académique {annee?.libelle || ''} — vue globale par segment</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
-          <ZoomBar zoom={zoom} setZoom={setZoom} libelle={annee?.libelle || ''} />
           <select value={anneeId || ''} onChange={e => setAnneeId(parseInt(e.target.value))} className="!w-auto">
             {annees.map(a => <option key={a.id} value={a.id}>{a.libelle}{a.active ? ' (active)' : ''}</option>)}
           </select>
@@ -438,6 +436,9 @@ export default function PlanningAnnuel() {
               </button>
             );
           })}
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <ZoomBar zoom={zoom} setZoom={setZoom} libelle={annee?.libelle || ''} />
+          </div>
         </div>
         <div className="flex items-center gap-4 text-xs text-slate-500 mt-2.5 pt-2.5 border-t border-slate-100">
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-500/20 border border-red-300" /> Vacances</span>
@@ -514,30 +515,23 @@ export default function PlanningAnnuel() {
               const focus = segmentActif === key;
               const actsSeg = activites.filter(a => a.segment === key);
               const lignes = [...new Set([...(LIGNES_DEFAUT[key] || []), ...actsSeg.map(a => a.ligne)])];
-              const isCollapsed = focus ? false : collapsed[key];
-              const hRow = focus ? 'h-14' : 'h-8';
               return (
                 <div key={key} className="border-b border-slate-100 last:border-0">
-                  {/* Bandeau segment */}
-                  <button
-                    onClick={() => !focus && setCollapsed(c => ({ ...c, [key]: !c[key] }))}
-                    className={`w-full flex items-center gap-2 px-3 text-left ${focus ? 'py-3 cursor-default' : 'py-2'}`}
-                    style={{ background: seg.light }}
-                  >
-                    {!focus && <ChevronRight size={15} className={`transition-transform shrink-0 ${isCollapsed ? '' : 'rotate-90'}`} style={{ color: seg.color }} />}
+                  {/* Bandeau segment (même style que les modules Tutorat / Évaluations) */}
+                  <div className={`flex items-center gap-2 px-3 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
                     <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{seg.label}</span>
                     <span className="text-xs text-slate-400 ml-auto shrink-0">{actsSeg.length} activité(s)</span>
-                  </button>
+                  </div>
 
                   {/* Lignes */}
-                  {!isCollapsed && lignes.map(ligne => {
+                  {lignes.map(ligne => {
                     const barres = actsSeg.filter(a => a.ligne === ligne);
                     return (
                       <div key={ligne} className="flex border-t border-slate-50">
-                        <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-1.5 text-xs'}`} title={ligne}>
+                        <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
                           {ligne}
                         </div>
-                        <div className={`flex-1 relative ${hRow}`}>
+                        <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                           <FondGrille tl={tl} />
                           <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
                           {/* Barres d'activité */}
@@ -547,20 +541,18 @@ export default function PlanningAnnuel() {
                             if (rr <= 0 || lr >= 100) return null; // hors de la fenêtre visible
                             const l = Math.max(0, lr);
                             const w = Math.max(Math.min(100, rr) - l, 0.8);
-                            const fmt = d => new Date(d).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' });
                             return (
                               <div
                                 key={a.id}
                                 onClick={() => setDetail(a)}
-                                title={`${a.libelle} : ${a.date_debut} → ${a.date_fin} — cliquer pour les détails`}
-                                className={`absolute rounded-md flex flex-col justify-center px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-1.5 bottom-1.5 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
+                                title={`${a.libelle} : ${a.date_debut} → ${a.date_fin}${a.type ? ` · ${a.type === 'TUTORAT' ? 'Tutorat' : `Évaluations (${a.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'})`}` : ''} — cliquer pour les détails`}
+                                className={`absolute rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
                                 style={{ left: `${l}%`, width: `${w}%`, background: a.couleur || seg.color }}
                               >
-                                <span className="truncate leading-tight">
+                                <span className="truncate">
                                   {a.type === 'TUTORAT' ? '📚 ' : a.type === 'EVALUATIONS' ? (a.sous_type === 'DEVOIRS' ? '📝 ' : '🧪 ') : ''}
                                   {a.libelle}
                                 </span>
-                                {focus && <span className="text-[10px] font-normal opacity-80 truncate leading-tight">{fmt(a.date_debut)} → {fmt(a.date_fin)}{a.type ? ` · ${a.type === 'TUTORAT' ? 'Tutorat' : `Évaluations (${a.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'})`}` : ''}</span>}
                               </div>
                             );
                           })}
