@@ -1,0 +1,74 @@
+@import "tailwindcss";
+
+:root {
+  --dfe-blue: #1e3a5f;
+  --dfe-blue-light: #2563eb;
+  --dfe-gold: #c9a227;
+}
+
+body {
+  font-family: 'Inter', system-ui, sans-serif;
+  background-color: #f1f5f9;
+}
+
+/* Scrollbar fine et discrète (navigation + zones défilantes) */
+.nav-scroll {
+  scrollbar-width: thin;               /* Firefox */
+  scrollbar-color: #cbd5e1 transparent;
+}
+.nav-scroll::-webkit-scrollbar {
+  width: 5px;
+}
+.nav-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.nav-scroll::-webkit-scrollbar-thumb {
+  background: #e2e8f0;
+  border-radius: 99px;
+}
+.nav-scroll:hover::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+/* Scrollbar globale plus discrète */
+main::-webkit-scrollbar, .overflow-y-auto::-webkit-scrollbar, .overflow-auto::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+main::-webkit-scrollbar-thumb, .overflow-y-auto::-webkit-scrollbar-thumb, .overflow-auto::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 99px;
+  border: 2px solid #f1f5f9;
+}
+main::-webkit-scrollbar-track, .overflow-y-auto::-webkit-scrollbar-track, .overflow-auto::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-slate-100 p-5;
+}
+
+.btn-primary {
+  @apply bg-[#1e3a5f] text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-[#2a4d7a] transition-colors disabled:opacity-50 shadow-sm shadow-blue-900/10;
+}
+.btn-secondary {
+  @apply bg-white text-slate-700 border border-slate-200 px-4 py-2 rounded-xl text-sm font-semibold hover:bg-slate-50 hover:border-slate-300 transition-colors;
+}
+.btn-danger {
+  @apply bg-red-600 text-white px-4 py-2 rounded-xl text-sm font-semibold hover:bg-red-700 transition-colors shadow-sm shadow-red-900/10;
+}
+
+.badge {
+  @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold;
+}
+
+input[type="text"], input[type="email"], input[type="password"], input[type="date"],
+input[type="time"], input[type="number"], input[type="search"], textarea, select {
+  @apply w-full border border-slate-200 bg-white rounded-xl px-3 py-2 text-sm text-slate-800
+         focus:outline-none focus:ring-2 focus:ring-blue-500/60 focus:border-blue-400
+         placeholder:text-slate-400 transition-shadow;
+}
+
+.table-header {
+  @apply text-xs font-semibold text-slate-500 uppercase tracking-wider;
+}

@@ -1,0 +1,25 @@
+# Dépendances
+node_modules/
+
+# Build
+frontend/dist/
+
+# Base de données (données réelles — jamais dans git)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+
+# Fichiers uploadés par les utilisateurs
+backend/uploads/
+
+# Environnement & secrets
+.env
+.env.*
+
+# Divers
+*.log
+.DS_Store
+Thumbs.db
+
+# Secrets applicatifs (jamais dans git)
+backend/src/config.secrets.js
