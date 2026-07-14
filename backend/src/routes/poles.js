@@ -10,9 +10,12 @@ router.get('/', auth, (req, res) => {
   const poles = db.prepare('SELECT * FROM poles ORDER BY code').all();
   const formations = db.prepare('SELECT * FROM formations ORDER BY cycle, nom').all();
 
+  const rps = db.prepare("SELECT pole_id, nom, prenom FROM users WHERE role = 'RESPONSABLE_PEDAGOGIQUE' AND actif = 1").all();
+
   const result = poles.map(p => ({
     ...p,
     formations: formations.filter(f => f.pole_id === p.id),
+    responsable_pedagogique: rps.find(r => r.pole_id === p.id) || null,
     promo_filieres: [], // compat : ancien modèle supprimé
   }));
 

@@ -1,25 +1,50 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
-import { BookOpen, ClipboardCheck, Calendar, Gavel, FilterX } from 'lucide-react';
-import { OK_CIBLES, NIVEAUX } from './Tutorat';
+import { BookOpen, ClipboardCheck, Gavel, RefreshCw } from 'lucide-react';
+import { OK_CIBLES } from './Tutorat';
 
-/* Module RÉSUMÉ : deux segments (Tutorat / Examens) avec barres de progression.
-   FILTRES COMBINABLES : on peut par exemple voir la situation de la Promotion 13,
-   Licence 1, Semestre 2, formation CD — les filtres s'appliquent aux deux segments. */
+/* Module RÉSUMÉ — inspiré du classeur « Calendrier académique UN-CHK » :
+   - Onglets SEJA / STN / LSHE : « SUIVI DE L'EXÉCUTION » du pôle (responsable
+     pédagogique, tableau par niveau : état, semestre, dates, programme, progression)
+   - Onglet DFIP : « Suivi de la programmation des évaluations » (semestre,
+     arrêté le, programme, statut du suivi, fin examen + compteurs)          */
 
+const POLES_SEG = {
+  SEJA: { color: '#ea580c', light: '#fdeee3' },
+  STN: { color: '#16a34a', light: '#e8f6ec' },
+  LSHE: { color: '#6d28d9', light: '#f0e9fb' },
+  DFIP: { color: '#1e3a5f', light: '#e8eef5' },
+};
+const NIVEAUX_ORDRE = ['L1', 'L2', 'L3', 'M1', 'M2'];
+const NIVEAU_LABEL = { L1: 'LICENCE 1', L2: 'LICENCE 2', L3: 'LICENCE 3', M1: 'MASTER 1', M2: 'MASTER 2' };
+const ETAT_TUT = {
+  PAS_DEMARRE: ['En attente de démarrage', 'bg-slate-100 text-slate-600'],
+  EN_COURS: ['En cours', 'bg-blue-100 text-blue-700'],
+  TERMINE: ['Terminé', 'bg-green-100 text-green-700'],
+};
 const SESSION_LABEL = { 1: 'Normale', 2: 'Rattrapage', 3: 'Spéciale' };
-const SESSION_STYLE = { 1: 'bg-blue-100 text-blue-700', 2: 'bg-amber-100 text-amber-700', 3: 'bg-purple-100 text-purple-700' };
-const ETAT_TUT = { PAS_DEMARRE: ['En attente', 'bg-slate-100 text-slate-600'], EN_COURS: ['En cours', 'bg-blue-100 text-blue-700'], TERMINE: ['Terminé', 'bg-green-100 text-green-700'] };
-const ETAT_EVAL = { CALENDRIER_DISPONIBLE: ['Calendrier disponible', 'bg-blue-100 text-blue-700'], EVAL_EN_COURS: ['En cours', 'bg-amber-100 text-amber-700'], EVAL_TERMINEES: ['Terminées', 'bg-green-100 text-green-700'] };
 
-const progressionFiche = (t) => Object.entries(OK_CIBLES).filter(([k, v]) => t[k] === v).length / 5;
-const pctEval = (e) => e.delib_etat === 'TERMINEE' ? 1 : e.etat_eval === 'EVAL_TERMINEES' ? 0.75 : e.etat_eval === 'EVAL_EN_COURS' ? 0.5 : 0.15;
+const progression = (t) => Object.entries(OK_CIBLES).filter(([k, v]) => t[k] === v).length / 5;
+const fmtSemestre = (t) => t.niveau && t.semestre_code ? `${t.niveau}-Semestre ${t.semestre_code.replace('S', '')}` : (t.semestre_code || '—');
 
-function BarreProgression({ pct, className = '' }) {
-  const couleur = pct >= 1 ? 'bg-green-500' : pct >= 0.6 ? 'bg-blue-500' : pct >= 0.3 ? 'bg-amber-500' : 'bg-red-400';
+/* Statut du suivi (colonne DFIP), déduit de l'état réel de l'évaluation */
+function statutSuivi(e) {
+  if (e.etat === 'ANNULE') return ['Examen annulé', 'bg-red-100 text-red-700'];
+  if (e.delib_etat === 'TERMINEE') return ['Terminé et délibéré', 'bg-green-100 text-green-700'];
+  if (e.etat_eval === 'EVAL_TERMINEES') return ['Examen terminé', 'bg-emerald-100 text-emerald-700'];
+  if (e.etat_eval === 'EVAL_EN_COURS') return ['Évaluations en cours', 'bg-amber-100 text-amber-700'];
+  if (e.date_programmation) return ['Examen programmé', 'bg-blue-100 text-blue-700'];
+  return ['Examen à programmer', 'bg-slate-100 text-slate-600'];
+}
+
+function Barre({ pct }) {
+  const c = pct >= 1 ? 'bg-green-500' : pct >= 0.6 ? 'bg-blue-500' : pct >= 0.3 ? 'bg-amber-500' : 'bg-red-400';
   return (
-    <div className={`h-2.5 bg-slate-100 rounded-full overflow-hidden ${className}`}>
-      <div className={`h-full rounded-full transition-all duration-700 ${couleur}`} style={{ width: `${Math.round(pct * 100)}%` }} />
+    <div className="flex items-center gap-2 min-w-28">
+      <div className="h-2 bg-slate-100 rounded-full overflow-hidden flex-1">
+        <div className={`h-full rounded-full transition-all duration-500 ${c}`} style={{ width: `${Math.round(pct * 100)}%` }} />
+      </div>
+      <span className="text-xs font-bold text-slate-600 w-9 text-right">{Math.round(pct * 100)}%</span>
     </div>
   );
 }
@@ -27,54 +52,58 @@ function BarreProgression({ pct, className = '' }) {
 export default function Resume() {
   const [tutorats, setTutorats] = useState([]);
   const [evals, setEvals] = useState([]);
+  const [poles, setPoles] = useState([]);
+  const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
-  // Filtres combinables (vides = tous)
-  const [f, setF] = useState({ pole: '', promotion: '', niveau: '', semestre: '', formation: '' });
+  const [onglet, setOnglet] = useState('SEJA');
+  const [fPromo, setFPromo] = useState('');
+  const [fSession, setFSession] = useState('');
 
-  useEffect(() => {
-    Promise.all([api.get('/tutorat'), api.get('/evaluations')])
-      .then(([t, e]) => { setTutorats(t.data.filter(x => x.statut_fiche !== 'REJETEE')); setEvals(e.data.filter(x => x.etat !== 'ANNULE')); })
-      .finally(() => setLoading(false));
-  }, []);
+  function load() {
+    setLoading(true);
+    Promise.all([
+      api.get('/tutorat'), api.get('/evaluations'), api.get('/poles'),
+      api.get('/incidents').catch(() => ({ data: [] })),
+    ]).then(([t, e, p, i]) => {
+      setTutorats(t.data.filter(x => x.statut_fiche !== 'REJETEE'));
+      setEvals(e.data);
+      setPoles(p.data);
+      setIncidents(i.data);
+    }).finally(() => setLoading(false));
+  }
+  useEffect(load, []);
 
-  const tous = useMemo(() => [...tutorats, ...evals], [tutorats, evals]);
-  const options = useMemo(() => ({
-    pole: [...new Set(tous.map(x => x.pole_code).filter(Boolean))].sort(),
-    promotion: [...new Set(tous.map(x => x.promotion_code).filter(Boolean))].sort(),
-    niveau: Object.keys(NIVEAUX),
-    semestre: [...new Set(tous.map(x => x.semestre_code).filter(Boolean))].sort(),
-    formation: [...new Set(tous.map(x => x.formation_nom).filter(Boolean))].sort(),
-  }), [tous]);
+  const promotions = useMemo(() =>
+    [...new Set([...tutorats, ...evals].map(x => x.promotion_code).filter(Boolean))].sort(), [tutorats, evals]);
 
-  const correspond = (x) =>
-    (!f.pole || x.pole_code === f.pole) &&
-    (!f.promotion || x.promotion_code === f.promotion) &&
-    (!f.niveau || x.niveau === f.niveau) &&
-    (!f.semestre || x.semestre_code === f.semestre) &&
-    (!f.formation || x.formation_nom === f.formation);
+  const tutoratsF = useMemo(() => tutorats.filter(t => !fPromo || t.promotion_code === fPromo), [tutorats, fPromo]);
+  const evalsF = useMemo(() => evals.filter(e =>
+    (!fPromo || e.promotion_code === fPromo) && (!fSession || String(e.session_num) === fSession)), [evals, fPromo, fSession]);
 
-  const tutoratsF = useMemo(() => tutorats.filter(correspond), [tutorats, f]);
-  const evalsF = useMemo(() => evals.filter(correspond), [evals, f]);
+  const pole = poles.find(p => p.code === onglet);
+  const seg = POLES_SEG[onglet] || POLES_SEG.DFIP;
 
-  const pctTutorat = tutoratsF.length ? tutoratsF.reduce((s, t) => s + progressionFiche(t), 0) / tutoratsF.length : 0;
-  const pctExamens = evalsF.length ? evalsF.reduce((s, e) => s + pctEval(e), 0) / evalsF.length : 0;
+  /* ===== Données onglet pôle : suivi de l'exécution (tutorat) ===== */
+  const fichesPole = tutoratsF.filter(t => t.pole_code === onglet);
+  const parNiveau = NIVEAUX_ORDRE
+    .map(niv => ({ niv, fiches: fichesPole.filter(t => t.niveau === niv) }))
+    .filter(g => g.fiches.length > 0);
+  const sansNiveau = fichesPole.filter(t => !NIVEAUX_ORDRE.includes(t.niveau));
+  const majPole = fichesPole.reduce((m, t) => (t.updated_at || '') > m ? t.updated_at : m, '');
 
-  /* Dates prévues : les plus proches en premier (à venir d'abord), filtrées */
-  const datesTriees = useMemo(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return evalsF
-      .map(e => ({ ...e, date_cle: e.date_programmation || e.date_demarrage }))
-      .filter(e => e.date_cle)
-      .sort((a, b) => {
-        const aF = a.date_cle >= today, bF = b.date_cle >= today;
-        if (aF !== bF) return aF ? -1 : 1;
-        return aF ? a.date_cle.localeCompare(b.date_cle) : b.date_cle.localeCompare(a.date_cle);
-      });
-  }, [evalsF]);
-
-  const jr = (d) => Math.ceil((new Date(d) - new Date()) / 86400000);
-  const filtresActifs = Object.values(f).some(Boolean);
-  const cursus = (x) => [x.pole_code, x.promotion_code, x.niveau, x.semestre_code].filter(Boolean).join(' · ');
+  /* ===== Données onglet DFIP : programmation des évaluations ===== */
+  const evalsProg = [...evalsF].sort((a, b) => {
+    const da = a.date_programmation || a.date_demarrage || '9999';
+    const db_ = b.date_programmation || b.date_demarrage || '9999';
+    return da.localeCompare(db_);
+  });
+  const nbProgrammees = evalsF.filter(e => e.date_programmation).length;
+  const nbTerminees = evalsF.filter(e => e.etat_eval === 'EVAL_TERMINEES').length;
+  const nbDeliberees = evalsF.filter(e => e.delib_etat === 'TERMINEE').length;
+  const nbReportees = incidents.filter(i => i.conseq_eval === 'REPORT').length;
+  /* Encart : programmes en cours avec leur taux d'exécution (tutorat en cours) */
+  const enCours = tutoratsF.filter(t => t.etat_tutorat === 'EN_COURS')
+    .sort((a, b) => progression(b) - progression(a)).slice(0, 6);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -82,140 +111,195 @@ export default function Resume() {
     </div>
   );
 
-  const FILTRES = [
-    ['pole', 'Pôle'], ['promotion', 'Promotion'], ['niveau', 'Niveau'], ['semestre', 'Semestre'], ['formation', 'Formation'],
-  ];
-
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">Résumé</h1>
-        <p className="text-slate-500 text-sm">Situation du tutorat et des examens — filtres combinables (ex. P13 + Licence 1 + Semestre 2 + une formation)</p>
+    <div className="space-y-5">
+      <div className="flex items-start justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-800">Résumé — Suivi de l'exécution</h1>
+          <p className="text-slate-500 text-sm">Remontée des activités par pôle et suivi de la programmation des évaluations (DFIP)</p>
+        </div>
+        <button onClick={load} className="btn-secondary flex items-center gap-2"><RefreshCw size={15} /> Actualiser</button>
       </div>
 
-      {/* ===== Filtres combinables ===== */}
+      {/* Onglets façon classeur + filtres */}
       <div className="card !p-3">
-        <div className="flex flex-wrap items-end gap-2">
-          {FILTRES.map(([k, label]) => (
-            <div key={k} className={k === 'formation' ? 'min-w-56 flex-1' : ''}>
-              <label className="text-[11px] font-semibold text-slate-400 uppercase block mb-1">{label}</label>
-              <select value={f[k]} onChange={e => setF(v => ({ ...v, [k]: e.target.value }))}
-                className={`!py-1.5 !text-xs ${f[k] ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
-                <option value="">{k === 'niveau' ? 'Tous' : k === 'formation' ? 'Toutes' : 'Tous'}</option>
-                {options[k].map(o => <option key={o} value={o}>{k === 'niveau' ? (NIVEAUX[o]?.label || o) : o}</option>)}
+        <div className="flex flex-wrap items-center gap-2">
+          {['SEJA', 'STN', 'LSHE', 'DFIP'].map(k => {
+            const s = POLES_SEG[k];
+            const actif = onglet === k;
+            return (
+              <button key={k} onClick={() => setOnglet(k)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-semibold border-2 transition-all ${actif ? 'text-white shadow-md scale-105' : 'bg-white hover:scale-[1.02]'}`}
+                style={actif ? { background: s.color, borderColor: s.color } : { color: s.color, borderColor: `${s.color}55` }}>
+                {k === 'DFIP' ? <ClipboardCheck size={15} /> : <BookOpen size={15} />} {k}
+              </button>
+            );
+          })}
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <select value={fPromo} onChange={e => setFPromo(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fPromo ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+              <option value="">Toutes promotions</option>
+              {promotions.map(p => <option key={p} value={p}>{p}</option>)}
+            </select>
+            {onglet === 'DFIP' && (
+              <select value={fSession} onChange={e => setFSession(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fSession ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+                <option value="">Toutes sessions</option>
+                <option value="1">Session Normale</option>
+                <option value="2">Session Rattrapage</option>
+                <option value="3">Session Spéciale</option>
               </select>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {onglet !== 'DFIP' ? (
+        /* ================== ONGLET PÔLE : SUIVI DE L'EXÉCUTION ================== */
+        <div className="card !p-0 overflow-hidden">
+          <div className="px-5 py-4 text-white" style={{ background: `linear-gradient(135deg, ${seg.color}, ${seg.color}cc)` }}>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi de l'exécution — remontée des activités</p>
+            <h2 className="font-bold text-lg leading-tight">{pole?.nom || onglet}</h2>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1.5 text-xs text-white/85">
+              <span>Responsable pédagogique : <strong>{pole?.responsable_pedagogique ? `${pole.responsable_pedagogique.prenom} ${pole.responsable_pedagogique.nom}` : '—'}</strong></span>
+              <span>Dernière mise à jour : <strong>{majPole ? majPole.slice(0, 16) : '—'}</strong></span>
+              <span>{fichesPole.length} programme(s) suivis</span>
             </div>
-          ))}
-          {filtresActifs && (
-            <button onClick={() => setF({ pole: '', promotion: '', niveau: '', semestre: '', formation: '' })}
-              className="btn-secondary !py-1.5 text-xs flex items-center gap-1.5 !text-red-600 !border-red-200 hover:!bg-red-50">
-              <FilterX size={13} /> Réinitialiser
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* ===== Segment TUTORAT ===== */}
-      <div className="card !p-0 overflow-hidden">
-        <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2563eb)' }}>
-          <div className="flex items-center gap-3 flex-wrap">
-            <BookOpen size={20} />
-            <h2 className="font-bold text-lg">Tutorat</h2>
-            <span className="text-white/70 text-sm">{tutoratsF.length} fiche(s){filtresActifs ? ' (filtrées)' : ''}</span>
-            <span className="ml-auto font-bold text-xl">{Math.round(pctTutorat * 100)} %</span>
-          </div>
-          <div className="h-3 bg-white/20 rounded-full overflow-hidden mt-2">
-            <div className="h-full bg-white rounded-full transition-all duration-700" style={{ width: `${Math.round(pctTutorat * 100)}%` }} />
-          </div>
-          <p className="text-white/60 text-[11px] mt-1">Progression PLATEFORMES ET TUTORATS (plateforme, cours, 3 enrôlements)</p>
-        </div>
-        <div className="p-5">
-          <div className="space-y-2 max-h-80 overflow-y-auto nav-scroll">
-            {tutoratsF.map(t => {
-              const p = progressionFiche(t);
-              const [etatLbl, etatCls] = ETAT_TUT[t.etat_tutorat] || ETAT_TUT.PAS_DEMARRE;
-              return (
-                <div key={t.id} className="flex items-center gap-3 flex-wrap">
-                  <span className="text-sm text-slate-700 font-medium w-64 truncate shrink-0" title={t.formation_nom}>
-                    {t.formation_nom || `${t.pole_nom || t.pole_code} (pôle)`}
-                  </span>
-                  <span className="text-[11px] text-slate-400 w-36 shrink-0">{cursus(t)}</span>
-                  <BarreProgression pct={p} className="flex-1 min-w-32" />
-                  <span className="text-xs font-bold text-slate-600 w-10 text-right">{Math.round(p * 100)}%</span>
-                  <span className={`badge ${etatCls} text-[10px] shrink-0`}>{etatLbl}</span>
-                  {t.activite_id && <span title="Issue du planning annuel">🔗</span>}
-                </div>
-              );
-            })}
-            {tutoratsF.length === 0 && <p className="text-sm text-slate-400 italic py-4 text-center">Aucune fiche pour ces filtres</p>}
-          </div>
-        </div>
-      </div>
-
-      {/* ===== Segment EXAMENS ===== */}
-      <div className="card !p-0 overflow-hidden">
-        <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #6d28d9, #a855f7)' }}>
-          <div className="flex items-center gap-3 flex-wrap">
-            <ClipboardCheck size={20} />
-            <h2 className="font-bold text-lg">Examens</h2>
-            <span className="text-white/70 text-sm">{evalsF.length} évaluation(s){filtresActifs ? ' (filtrées)' : ''}</span>
-            <span className="ml-auto font-bold text-xl">{Math.round(pctExamens * 100)} %</span>
-          </div>
-          <div className="h-3 bg-white/20 rounded-full overflow-hidden mt-2">
-            <div className="h-full bg-white rounded-full transition-all duration-700" style={{ width: `${Math.round(pctExamens * 100)}%` }} />
-          </div>
-          <p className="text-white/60 text-[11px] mt-1">Avancement : calendrier → en cours → terminées → délibérées</p>
-        </div>
-        <div className="p-5 space-y-6">
-          {/* Situation détaillée */}
-          <div className="space-y-2 max-h-72 overflow-y-auto nav-scroll">
-            {evalsF.map(e => {
-              const p = pctEval(e);
-              const [etatLbl, etatCls] = ETAT_EVAL[e.etat_eval] || ETAT_EVAL.CALENDRIER_DISPONIBLE;
-              return (
-                <div key={e.id} className="flex items-center gap-3 flex-wrap">
-                  <span className="text-sm text-slate-700 font-medium w-64 truncate shrink-0" title={e.formation_nom}>
-                    {e.formation_nom || `${e.pole_nom || e.pole_code} (pôle)`}
-                  </span>
-                  <span className={`badge ${SESSION_STYLE[e.session_num]} text-[10px] shrink-0`}>{SESSION_LABEL[e.session_num]}</span>
-                  <span className="text-[11px] text-slate-400 w-32 shrink-0">{cursus(e)}</span>
-                  <BarreProgression pct={p} className="flex-1 min-w-32" />
-                  <span className={`badge ${etatCls} text-[10px] shrink-0`}>{etatLbl}</span>
-                  {e.delib_etat === 'TERMINEE' && <Gavel size={13} className="text-green-600 shrink-0" title="Délibérée" />}
-                  {e.activite_id && <span title="Issue du planning annuel">🔗</span>}
-                </div>
-              );
-            })}
-            {evalsF.length === 0 && <p className="text-sm text-slate-400 italic py-4 text-center">Aucune évaluation pour ces filtres</p>}
           </div>
 
-          {/* Dates prévues par session — les plus proches en premier */}
-          <div>
-            <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3 flex items-center gap-2">
-              <Calendar size={15} /> Dates prévues (les plus proches en premier)
-            </h3>
-            <div className="divide-y divide-slate-100 max-h-80 overflow-y-auto nav-scroll">
-              {datesTriees.map(e => {
-                const j = jr(e.date_cle);
-                return (
-                  <div key={e.id} className="flex items-center gap-3 py-2.5 flex-wrap">
-                    <span className={`badge text-[11px] shrink-0 ${j < 0 ? 'bg-slate-100 text-slate-400' : j <= 7 ? 'bg-red-100 text-red-700 font-bold' : j <= 21 ? 'bg-amber-100 text-amber-700' : 'bg-blue-50 text-blue-700'}`}>
-                      {e.date_cle}{j >= 0 ? ` · J−${j}` : ''}
-                    </span>
-                    <span className={`badge ${SESSION_STYLE[e.session_num]} shrink-0`}>{SESSION_LABEL[e.session_num]}</span>
-                    <span className="badge bg-slate-100 text-slate-600 shrink-0">{e.type_evaluation === 'DEVOIR' ? 'Devoir' : 'Examen'}</span>
-                    <span className="text-sm text-slate-700 font-medium truncate flex-1" title={e.formation_nom}>
-                      {e.formation_nom || `${e.pole_code} (pôle)`}
-                    </span>
-                    <span className="text-xs text-slate-400 shrink-0">{cursus(e)}</span>
+          <div className="overflow-x-auto nav-scroll">
+            <table className="w-full text-sm min-w-[760px]">
+              <thead>
+                <tr className="bg-slate-50 border-b border-slate-200">
+                  <th className="text-left px-4 py-2.5 table-header">État</th>
+                  <th className="text-left px-4 py-2.5 table-header">Semestre</th>
+                  <th className="text-left px-4 py-2.5 table-header">Date de début</th>
+                  <th className="text-left px-4 py-2.5 table-header">Date de fin</th>
+                  <th className="text-left px-4 py-2.5 table-header">Programme</th>
+                  <th className="text-left px-4 py-2.5 table-header w-44">Progression</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...parNiveau, ...(sansNiveau.length ? [{ niv: null, fiches: sansNiveau }] : [])].map(({ niv, fiches }) => {
+                  const pctNiv = fiches.reduce((s, t) => s + progression(t), 0) / fiches.length;
+                  const termines = fiches.filter(t => t.etat_tutorat === 'TERMINE').length;
+                  return [
+                    /* Ligne d'agrégat du niveau (comme la ligne LICENCE 1 du classeur) */
+                    <tr key={`niv-${niv}`} style={{ background: seg.light }}>
+                      <td colSpan={4} className="px-4 py-2 font-bold text-sm" style={{ color: seg.color }}>
+                        {niv ? NIVEAU_LABEL[niv] : 'AUTRES'}
+                      </td>
+                      <td className="px-4 py-2 text-xs font-semibold" style={{ color: seg.color }}>
+                        {fiches.length} programme(s) · {termines} terminé(s)
+                      </td>
+                      <td className="px-4 py-2"><Barre pct={pctNiv} /></td>
+                    </tr>,
+                    ...fiches.map(t => {
+                      const [lbl, cls] = ETAT_TUT[t.etat_tutorat] || ETAT_TUT.PAS_DEMARRE;
+                      return (
+                        <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                          <td className="px-4 py-2"><span className={`badge ${cls} text-[11px]`}>{lbl}</span></td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(t)}</td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_debut || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_fin || '—'}</td>
+                          <td className="px-4 py-2">
+                            <span className="font-medium text-slate-800">{t.formation_code || t.formation_nom || '(pôle entier)'}</span>
+                            {t.promotion_code && <span className="text-xs text-slate-400"> · {t.promotion_code}</span>}
+                            {t.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                          </td>
+                          <td className="px-4 py-2"><Barre pct={progression(t)} /></td>
+                        </tr>
+                      );
+                    }),
+                  ];
+                })}
+                {fichesPole.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucun programme suivi pour ce pôle{fPromo ? ` (promotion ${fPromo})` : ''}</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ) : (
+        /* ================== ONGLET DFIP : PROGRAMMATION DES ÉVALUATIONS ================== */
+        <>
+          <div className="card !p-0 overflow-hidden">
+            <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2563eb)' }}>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi de la programmation des évaluations</p>
+              <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3">
+                {[['Effectif', evalsF.length], ['Programmées', nbProgrammees], ['Terminées', nbTerminees], ['Délibérées', nbDeliberees], ['Reportées', nbReportees]].map(([l, v]) => (
+                  <div key={l} className="bg-white/12 border border-white/20 rounded-xl px-3 py-2 text-center">
+                    <p className="text-xl font-bold tabular-nums">{v}</p>
+                    <p className="text-[11px] text-white/75 uppercase tracking-wide">{l}</p>
                   </div>
-                );
-              })}
-              {datesTriees.length === 0 && <p className="text-sm text-slate-400 italic py-4 text-center">Aucune date prévue pour ces filtres</p>}
+                ))}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto nav-scroll">
+              <table className="w-full text-sm min-w-[820px]">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left px-4 py-2.5 table-header">Semestre</th>
+                    <th className="text-left px-4 py-2.5 table-header">Arrêté le</th>
+                    <th className="text-left px-4 py-2.5 table-header">Programme</th>
+                    <th className="text-left px-4 py-2.5 table-header">Session</th>
+                    <th className="text-left px-4 py-2.5 table-header">Statut du suivi</th>
+                    <th className="text-left px-4 py-2.5 table-header">Fin examen</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {evalsProg.map(e => {
+                    const [lbl, cls] = statutSuivi(e);
+                    const pc = POLES_SEG[e.pole_code]?.color || '#64748b';
+                    return (
+                      <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                        <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(e)}</td>
+                        <td className="px-4 py-2 whitespace-nowrap tabular-nums font-medium text-slate-800">{e.date_programmation || '—'}</td>
+                        <td className="px-4 py-2">
+                          <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: pc }} />
+                          <span className="font-medium text-slate-800">{e.formation_code || e.formation_nom || `${e.pole_code} (pôle)`}</span>
+                          {e.promotion_code && <span className="text-xs text-slate-400"> · {e.promotion_code}</span>}
+                          {e.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
+                        </td>
+                        <td className="px-4 py-2 text-slate-600">{SESSION_LABEL[e.session_num]}</td>
+                        <td className="px-4 py-2">
+                          <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
+                          {e.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
+                        </td>
+                        <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{e.date_fin_prevue || '—'}</td>
+                      </tr>
+                    );
+                  })}
+                  {evalsProg.length === 0 && (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucune évaluation pour ces filtres</td></tr>
+                  )}
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
-      </div>
+
+          {/* Encart : programmes en cours avec leurs taux d'exécution */}
+          {enCours.length > 0 && (
+            <div className="card">
+              <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide mb-3">
+                Semestres des programmes en cours — taux d'exécution
+              </h3>
+              <div className="space-y-2">
+                {enCours.map(t => (
+                  <div key={t.id} className="flex items-center gap-3">
+                    <span className="text-xs text-slate-500 w-32 shrink-0 whitespace-nowrap">{fmtSemestre(t)}</span>
+                    <span className="text-sm font-medium text-slate-800 w-44 truncate shrink-0" title={t.formation_nom}>
+                      {t.formation_code || t.formation_nom || `${t.pole_code} (pôle)`}
+                    </span>
+                    <Barre pct={progression(t)} />
+                    <span className="text-[11px] text-slate-400 shrink-0">{t.pole_code}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </>
+      )}
     </div>
   );
 }
