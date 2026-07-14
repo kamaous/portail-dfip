@@ -113,15 +113,21 @@ router.delete('/:id', auth, requireRole('ADMIN_PORTAIL'), (req, res) => {
 });
 
 // POST /api/users/:id/reset-password (ADMIN + DIRECTEUR)
+// L'admin peut fournir son propre mot de passe ({ password }) — sinon un temporaire est généré.
 router.post('/:id/reset-password', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  const tmpPassword = `UnCHK@${Math.floor(1000 + Math.random() * 9000)}`;
+  const choisi = (req.body?.password || '').trim();
+  if (choisi && choisi.length < 6) return res.status(400).json({ error: 'Mot de passe trop court (6 caractères minimum)' });
+  const tmpPassword = choisi || `UnCHK@${Math.floor(1000 + Math.random() * 9000)}`;
   const hash = bcrypt.hashSync(tmpPassword, 10);
   const db = getDb();
+  if (!db.prepare('SELECT id FROM users WHERE id = ?').get(req.params.id)) {
+    return res.status(404).json({ error: 'Utilisateur introuvable' });
+  }
 
   db.prepare(`
-    UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = datetime('now')
+    UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = datetime('now')
     WHERE id = ?
-  `).run(hash, req.params.id);
+  `).run(hash, choisi ? 0 : 1, req.params.id); // mot de passe choisi par l'admin = définitif
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   sendEmail({

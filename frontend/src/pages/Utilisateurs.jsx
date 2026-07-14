@@ -135,9 +135,20 @@ export default function Utilisateurs() {
   useEffect(load, []);
 
   async function resetPassword(u) {
-    if (!confirm(`Réinitialiser le mot de passe de ${u.prenom} ${u.nom} ?`)) return;
-    const r = await api.post(`/users/${u.id}/reset-password`);
-    toast.success(`Nouveau MP temporaire : ${r.data.tmp_password}`, { duration: 10000 });
+    const saisie = prompt(
+      `Réinitialiser le mot de passe de ${u.prenom} ${u.nom}.\n\n` +
+      `Tapez le NOUVEAU mot de passe (6 caractères min.),\n` +
+      `ou laissez vide pour générer un temporaire (envoyé par email, à changer à la 1re connexion).`
+    );
+    if (saisie === null) return; // annulé
+    try {
+      const r = await api.post(`/users/${u.id}/reset-password`, { password: saisie.trim() });
+      // Affichage impossible à manquer : l'email du compte peut ne pas exister (comptes de test)
+      alert(`Mot de passe de ${u.prenom} ${u.nom} :\n\n    ${r.data.tmp_password}\n\nNotez-le maintenant${saisie.trim() ? '' : ' — il devra être changé à la première connexion'}.`);
+      load();
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erreur');
+    }
   }
 
   async function toggleActif(u) {
