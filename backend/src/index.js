@@ -32,6 +32,7 @@ app.use('/api/reunions', require('./routes/reunions'));
 app.use('/api/export', require('./routes/export'));
 app.use('/api/planning', require('./routes/planning'));
 app.use('/api/public', require('./routes/public')); // visiteur sans compte : planning en lecture seule
+app.use('/api/signalements', require('./routes/signalements'));
 
 // Nettoyage des sessions expirées (toutes les heures)
 setInterval(() => {

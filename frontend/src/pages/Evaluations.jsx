@@ -5,6 +5,7 @@ import { Plus, ClipboardCheck, Trash2, Calendar, Gavel, LayoutGrid, GanttChartSq
 import { useAuth } from '../context/AuthContext';
 import { SelecteurCursus } from './Tutorat';
 import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
+import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
 const TYPE_EVAL = {
@@ -37,7 +38,7 @@ const ETAT_BAR = { CALENDRIER_DISPONIBLE: null, EVAL_EN_COURS: '#f59e0b', EVAL_T
 
 /* ===== Modal de création (Responsable de formation, dates dans les plages du planning) ===== */
 function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated, onConflit }) {
-  const estRF = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE'].includes(user?.role);
+  const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE'; // pôle verrouillé pour le Responsable pédagogique
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
@@ -241,9 +242,10 @@ export default function Evaluations() {
   const canDelete = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Suivi : Chef de division DFE
   const canSuivi = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
-  // Création + dates : Responsables de formation + Responsable pédagogique (héritage)
-  const canCreate = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
-  const estRF = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE'].includes(user?.role);
+  // Création + dates : Responsable pédagogique du pôle (les RF consultent et signalent)
+  const canCreate = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE';
+  const peutSignaler = user?.role === 'RESPONSABLE_FORMATION';
   // Délibérations : Directeurs de pôle + Responsable pédagogique (héritage)
   const canDelib = ['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
 
@@ -274,7 +276,7 @@ export default function Evaluations() {
   const detail = items.find(s => s.id === detailId);
   const selectionnables = affiches.filter(s => s.etat_eval === 'EVAL_TERMINEES' && (user?.role !== 'RESPONSABLE_POLE' || s.pole_id === user?.pole_id));
   const toggleSel = id => setSelection(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
-  const propsCarte = { update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, userPoleId: user?.pole_id, userRole: user?.role };
+  const propsCarte = { update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId: user?.pole_id, userRole: user?.role };
 
   return (
     <div className="space-y-6">
@@ -340,6 +342,9 @@ export default function Evaluations() {
           )}
         </div>
       </div>
+
+      {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
+      <PanneauSignalements cibleType="EVALUATION" user={user} />
 
       {loading ? (
         <div className="flex justify-center h-32 items-center"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
@@ -537,7 +542,7 @@ export default function Evaluations() {
 }
 
 /* ===== Carte d'une évaluation ===== */
-function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, userPoleId, userRole, selectable, selected, onToggleSel }) {
+function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId, userRole, selectable, selected, onToggleSel }) {
   const editDates = (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE' && !s.activite_id;
   const editDelib = (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
   return (
@@ -616,8 +621,12 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDe
         )}
       </div>
 
-      {(canSuivi || canDelete) && s.etat !== 'ANNULE' && (
+      {(canSuivi || canDelete || peutSignaler) && s.etat !== 'ANNULE' && (
         <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
+          {peutSignaler && (
+            <BoutonSignaler cibleType="EVALUATION" cibleId={s.id}
+              contexte={`${s.formation_nom || s.pole_nom || ''} · ${SESSION_LABEL[s.session_num]} · ${s.date_demarrage || ''} → ${s.date_fin_prevue || ''}`} />
+          )}
           {canSuivi && <button onClick={() => annuler(s)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg">Annuler l'évaluation</button>}
           {canDelete && !s.activite_id && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={15} /></button>}
         </div>

@@ -5,6 +5,7 @@ import { Plus, BookOpen, Trash2, AlertTriangle, Calendar, LayoutGrid, GanttChart
 import { useAuth } from '../context/AuthContext';
 import { useMemo } from 'react';
 import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
+import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
 /* Configuration des champs d'état — vocabulaire officiel du fichier Tutorat UN-CHK */
 const ENROLEMENT = {
@@ -148,7 +149,7 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
 }
 
 function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
-  const estRF = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE'].includes(user?.role);
+  const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE'; // pôle verrouillé + fiche soumise à validation
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
@@ -237,7 +238,7 @@ function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
   );
 }
 
-function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canWrite, canValider }) {
+function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canWrite, canValider, peutSignaler }) {
   const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
   const prog = progression(t);
   const toutOK = prog === 5;
@@ -363,6 +364,10 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
         <div className="flex items-center justify-between pt-1">
           <p className="text-[11px] text-slate-400">Créée par {t.created_by_prenom} {t.created_by_nom}</p>
           <div className="flex items-center gap-1.5">
+            {peutSignaler && (
+              <BoutonSignaler cibleType="TUTORAT" cibleId={t.id}
+                contexte={`${t.formation_nom || t.pole_nom || ''} · ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''}`} />
+            )}
             {canWrite && validee && (
               <button onClick={() => onRetard(t)} className="text-xs font-medium text-orange-600 hover:bg-orange-50 px-2.5 py-1.5 rounded-lg flex items-center gap-1">
                 <AlertTriangle size={13} /> Retard
@@ -451,8 +456,9 @@ export default function Tutorat() {
   // Section PLATEFORMES ET TUTORATS : Chef division Technopédagogie (aligné sur le backend)
   const canWrite = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   const canValider = canWrite;
-  // Création des fiches : Responsables de formation + Responsable pédagogique (héritage)
-  const canCreate = ['RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Création des fiches : Responsable pédagogique du pôle (les RF consultent et signalent)
+  const canCreate = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  const peutSignaler = user?.role === 'RESPONSABLE_FORMATION';
   const canSetDemarrage = ['DIRECTEUR', 'CHEF_DIV_TECHNOPEDAGOGIE', 'ADMIN_PORTAIL'].includes(user?.role);
   const anneeActive = annees.find(a => a.active);
 
@@ -568,6 +574,9 @@ export default function Tutorat() {
         </div>
       </div>
 
+      {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
+      <PanneauSignalements cibleType="TUTORAT" user={user} />
+
       <div className="flex gap-2">
         {['', 'PAS_DEMARRE', 'EN_COURS', 'TERMINE'].map(s => (
           <button key={s} onClick={() => setFiltreEtat(s)}
@@ -606,7 +615,7 @@ export default function Tutorat() {
           })()}
           <div className="grid lg:grid-cols-2 gap-4">
             {tutoratsAffiches.map(t => (
-              <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider} canDelete={canDelete} canWrite={canWrite} canValider={canValider} />
+              <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider} canDelete={canDelete} canWrite={canWrite} canValider={canValider} peutSignaler={peutSignaler} />
             ))}
           </div>
         </>
@@ -747,6 +756,7 @@ export default function Tutorat() {
               canDelete={canDelete}
               canWrite={canWrite}
               canValider={canValider}
+              peutSignaler={peutSignaler}
             />
             <button onClick={() => setDetailId(null)} className="w-full mt-2 bg-white/90 rounded-xl py-2 text-sm text-slate-500 hover:text-slate-700">
               Fermer

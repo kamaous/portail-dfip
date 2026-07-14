@@ -367,6 +367,27 @@ function initSchema() {
       FOREIGN KEY (valide_par) REFERENCES users(id)
     );
 
+    -- Signalements de non-conformité (Responsable de formation → traité par le Responsable pédagogique)
+    CREATE TABLE IF NOT EXISTS signalements (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      cible_type TEXT NOT NULL,                 -- TUTORAT | EVALUATION
+      cible_id INTEGER NOT NULL,
+      pole_id INTEGER,
+      formation_id INTEGER,
+      objet TEXT NOT NULL,
+      message TEXT NOT NULL,
+      statut TEXT NOT NULL DEFAULT 'OUVERT',    -- OUVERT | TRAITE
+      reponse TEXT,
+      signale_par INTEGER NOT NULL,
+      traite_par INTEGER,
+      traite_at TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (pole_id) REFERENCES poles(id),
+      FOREIGN KEY (formation_id) REFERENCES formations(id),
+      FOREIGN KEY (signale_par) REFERENCES users(id),
+      FOREIGN KEY (traite_par) REFERENCES users(id)
+    );
+
     -- Vacances (renseignées uniquement par le Directeur)
     CREATE TABLE IF NOT EXISTS vacances (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

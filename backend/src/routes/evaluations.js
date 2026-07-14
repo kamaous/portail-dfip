@@ -10,8 +10,9 @@ const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Se
 
 // Suivi (réception, implémentation, état, date prévue) : Chef de division DFE
 const SUIVI_ROLES = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'];
-// Création + dates : Responsables de formation (leur pôle), complétés par le Chef DFE
-const CREATE_ROLES = ['RESPONSABLE_FORMATION', ...SUIVI_ROLES];
+// Création + dates : Responsable pédagogique du pôle (les Responsables de formation
+// consultent et signalent), complétés par le Chef DFE
+const CREATE_ROLES = ['RESPONSABLE_PEDAGOGIQUE', ...SUIVI_ROLES];
 // Délibérations : Directeurs de pôle (leur pôle) + Directeur/Admin
 const DELIB_ROLES = ['RESPONSABLE_POLE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
 
@@ -142,9 +143,8 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
 
   const db = getDb();
 
-  // Un responsable de formation (ou pédagogique) ne crée que pour SON pôle
-  if (hasRole(req.user, 'RESPONSABLE_FORMATION') && !['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role)
-      && req.user.pole_id !== parseInt(pole_id)) {
+  // Le Responsable pédagogique ne crée que pour SON pôle
+  if (req.user.role === 'RESPONSABLE_PEDAGOGIQUE' && req.user.pole_id !== parseInt(pole_id)) {
     return res.status(403).json({ error: 'Vous ne pouvez renseigner que les évaluations de votre pôle.' });
   }
 
@@ -201,7 +201,8 @@ router.put('/:id', auth, (req, res) => {
           delib_etat, date_deliberation, etat, observations, motif } = req.body;
 
   const estSuivi = SUIVI_ROLES.includes(req.user.role);
-  const estRF = hasRole(req.user, 'RESPONSABLE_FORMATION') && req.user.pole_id === prev.pole_id;
+  // Dates : Responsable pédagogique du pôle (les RF signalent, ils ne modifient pas)
+  const estRF = req.user.role === 'RESPONSABLE_PEDAGOGIQUE' && req.user.pole_id === prev.pole_id;
   const estDP = hasRole(req.user, 'RESPONSABLE_POLE') && req.user.pole_id === prev.pole_id;
   const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
 
