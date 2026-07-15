@@ -4,7 +4,6 @@ import toast from 'react-hot-toast';
 import { Plus, BookOpen, Trash2, AlertTriangle, Calendar, LayoutGrid, GanttChartSquare, List } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useMemo } from 'react';
-import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
 /* Configuration des champs d'état — vocabulaire officiel du fichier Tutorat UN-CHK */
@@ -75,79 +74,122 @@ export const NIVEAUX = {
   M2: { label: 'Master 2', cycle: 'MASTER', semestres: ['S3'] },
 };
 
-/* ===== Rendu VERTICAL du planning (le temps s'écoule de haut en bas) =====
-   Transposition de la vue Gantt : colonnes = Pôles / Niveaux, axe vertical = dates.
-   Partagé entre les modules Tutorat et Évaluations. */
-export const hauteurTl = (tl) => tl.mode === 'MOIS' ? tl.units.length * 26 : 780;
-
-export function AxeTempsV({ tl, h }) {
-  return (
-    <div className="relative w-16" style={{ height: h }}>
-      {tl.units.map((u, i) => (
-        <div key={i}
-          className={`absolute inset-x-0 border-t border-slate-100 px-1.5 pt-0.5 text-[10px] font-medium ${u.weekend ? 'bg-slate-100/80 text-slate-400' : 'text-slate-500'}`}
-          style={{ top: `${u.left}%`, height: `${u.width}%` }}>
-          {u.sub ? <span className="text-slate-400">{u.sub} <strong className="text-slate-600">{u.label}</strong></span> : u.label}
-        </div>
-      ))}
-    </div>
-  );
+/* Progression temporelle du tutorat : basée sur les dates de début et de fin
+   (temps écoulé entre les deux ; Terminé = 100 %) */
+export function progressionDates(t) {
+  if (t.etat_tutorat === 'TERMINE') return 1;
+  const d = t.date_debut || t.date_demarree_le, f = t.date_fin || t.date_terminee_le;
+  if (!d || !f) return 0;
+  const a = Date.parse(d), b = Date.parse(f), now = Date.now();
+  if (b <= a || now <= a) return 0;
+  if (now >= b) return 1;
+  return (now - a) / (b - a);
 }
 
-export function FondGrilleV({ tl }) {
-  return (
-    <>
-      {tl.units.map((u, i) => u.weekend ? (
-        <div key={`w${i}`} className="absolute inset-x-0 bg-slate-100/70 pointer-events-none" style={{ top: `${u.left}%`, height: `${u.width}%` }} />
-      ) : null)}
-      {tl.units.map((u, i) => (
-        <div key={`l${i}`} className="absolute inset-x-0 border-t border-slate-50 pointer-events-none" style={{ top: `${u.left}%` }} />
-      ))}
-    </>
-  );
-}
+/* ===== Calendrier mensuel façon Google Agenda =====
+   Bandes multi-jours empilées par semaine (couloirs), vacances en fond rosé,
+   fériés en point rouge. Partagé entre les modules Tutorat et Évaluations.
+   events: [{ debut, fin (ISO), label, titre, color, dashed?, onClick? }] */
+const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
+const isoJour = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export function OverlaysV({ vacances, feries, tl }) {
+export function CalendrierMois({ events, vacances = [], feries = [] }) {
+  const [mois, setMois] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
+  const aujourd = isoJour(new Date());
+
+  // Semaines affichées : du lundi précédant le 1er au dimanche suivant la fin du mois
+  const semaines = useMemo(() => {
+    const start = new Date(mois);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7)); // lundi
+    const finMois = new Date(mois.getFullYear(), mois.getMonth() + 1, 0);
+    const out = [];
+    const cur = new Date(start);
+    while (cur <= finMois) {
+      const jours = [];
+      for (let i = 0; i < 7; i++) { jours.push(new Date(cur)); cur.setDate(cur.getDate() + 1); }
+      out.push(jours);
+    }
+    return out;
+  }, [mois]);
+
+  // Bandes d'une semaine : segment [c0..c1] (colonnes 0-6) + couloir (lane) sans chevauchement
+  function bandesSemaine(jours) {
+    const sISO = isoJour(jours[0]), eISO = isoJour(jours[6]);
+    const diff = (a, b) => Math.round((Date.parse(b) - Date.parse(a)) / 86400000);
+    const evs = events
+      .filter(ev => ev.debut && ev.fin && ev.debut <= eISO && ev.fin >= sISO)
+      .sort((a, b) => a.debut.localeCompare(b.debut) || b.fin.localeCompare(a.fin));
+    const finCouloirs = []; // dernière colonne occupée de chaque couloir
+    return evs.map(ev => {
+      const c0 = Math.max(0, diff(sISO, ev.debut));
+      const c1 = Math.min(6, diff(sISO, ev.fin));
+      let lane = finCouloirs.findIndex(fc => fc < c0);
+      if (lane === -1) { lane = finCouloirs.length; finCouloirs.push(c1); } else { finCouloirs[lane] = c1; }
+      return { ...ev, c0, c1, lane, continueG: ev.debut < sISO, continueD: ev.fin > eISO };
+    });
+  }
+
   return (
-    <>
-      {vacances.map((v, i) => {
-        const t0 = tl.pctRaw(v.date_debut), b0 = tl.pctRaw(v.date_fin);
-        if (b0 <= 0 || t0 >= 100) return null;
-        const top = Math.max(0, t0), hh = Math.min(100, b0) - top;
+    <div className="card !p-0 overflow-hidden">
+      {/* Barre de navigation du mois */}
+      <div className="flex items-center gap-2 px-4 py-3 border-b border-slate-100 flex-wrap">
+        <button onClick={() => { const n = new Date(); setMois(new Date(n.getFullYear(), n.getMonth(), 1)); }}
+          className="btn-secondary !py-1.5 !px-3 !text-xs">Aujourd'hui</button>
+        <button onClick={() => setMois(m => new Date(m.getFullYear(), m.getMonth() - 1, 1))}
+          className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-500 font-bold">‹</button>
+        <button onClick={() => setMois(m => new Date(m.getFullYear(), m.getMonth() + 1, 1))}
+          className="w-8 h-8 rounded-full hover:bg-slate-100 text-slate-500 font-bold">›</button>
+        <h3 className="font-bold text-lg text-slate-800 ml-1">{MOIS_FR[mois.getMonth()]} {mois.getFullYear()}</h3>
+      </div>
+
+      {/* En-tête des jours */}
+      <div className="grid grid-cols-7 text-center text-[11px] font-semibold text-slate-400 uppercase tracking-wide py-1.5 border-b border-slate-100">
+        {['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'].map(j => <div key={j}>{j}</div>)}
+      </div>
+
+      {/* Semaines */}
+      {semaines.map((jours, wi) => {
+        const bandes = bandesSemaine(jours);
+        const nbLanes = bandes.reduce((m, b) => Math.max(m, b.lane + 1), 0);
         return (
-          <div key={`v${i}`} title={`${v.libelle} : ${v.date_debut} → ${v.date_fin}`}
-            className="absolute inset-x-0 border-y border-red-200 pointer-events-none"
-            style={{ top: `${top}%`, height: `${hh}%`, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(239,68,68,0.14) 6px, rgba(239,68,68,0.14) 12px)' }} />
+          <div key={wi} className="relative grid grid-cols-7 border-t border-slate-100 first:border-t-0"
+            style={{ minHeight: Math.max(92, 34 + nbLanes * 24 + 8) }}>
+            {jours.map((j, di) => {
+              const jISO = isoJour(j);
+              const horsMois = j.getMonth() !== mois.getMonth();
+              const ferie = feries.find(f => f.recurrent ? f.date.slice(5) === jISO.slice(5) : f.date === jISO);
+              const enVacances = vacances.some(v => v.date_debut <= jISO && jISO <= v.date_fin);
+              return (
+                <div key={di} className={`border-l border-slate-100 first:border-l-0 px-1.5 pt-1 ${horsMois ? 'bg-slate-50/70' : ''} ${enVacances ? '!bg-red-50/70' : ''}`}
+                  title={[ferie && `Férié : ${ferie.libelle}`, enVacances && 'Vacances'].filter(Boolean).join(' · ') || undefined}>
+                  <div className="flex items-center gap-1">
+                    <span className={`text-xs w-6 h-6 flex items-center justify-center rounded-full ${jISO === aujourd ? 'bg-blue-600 text-white font-bold' : horsMois ? 'text-slate-300' : 'text-slate-600 font-medium'}`}>
+                      {j.getDate()}
+                    </span>
+                    {ferie && <span className="w-2 h-2 rounded-full bg-red-500 border border-white shadow-sm shrink-0" />}
+                  </div>
+                </div>
+              );
+            })}
+            {/* Bandes multi-jours (façon Google Agenda) */}
+            {bandes.map((b, bi) => (
+              <div key={bi} onClick={b.onClick} title={b.titre}
+                className={`absolute h-5 flex items-center px-1.5 text-[10px] font-semibold overflow-hidden whitespace-nowrap shadow-sm z-10 ${b.onClick ? 'cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-blue-200' : 'cursor-help'} ${b.continueG ? '' : 'rounded-l-md'} ${b.continueD ? '' : 'rounded-r-md'} ${b.dashed ? 'border-2 border-dashed bg-white/95' : 'text-white'}`}
+                style={{
+                  top: 34 + b.lane * 24,
+                  left: `calc(${(b.c0 / 7) * 100}% + 2px)`,
+                  width: `calc(${((b.c1 - b.c0 + 1) / 7) * 100}% - 4px)`,
+                  background: b.dashed ? undefined : b.color,
+                  borderColor: b.dashed ? b.color : undefined,
+                  color: b.dashed ? b.color : undefined,
+                }}>
+                <span className="truncate">{b.continueG ? '… ' : ''}{b.label}{b.continueD ? ' …' : ''}</span>
+              </div>
+            ))}
+          </div>
         );
       })}
-      {feries.map((f, i) => {
-        const t0 = tl.pct(f.date);
-        if (t0 <= 0 || t0 >= 100) return null;
-        return <div key={`f${i}`} title={`${f.libelle} (${f.date})`} className="absolute inset-x-0 border-t-2 border-red-500/70 pointer-events-none" style={{ top: `${t0}%` }} />;
-      })}
-    </>
-  );
-}
-
-/* Plage du Planning annuel en vertical : ligne de tirets •¦¦¦• avec un point
-   à chaque extrémité et l'intitulé centré, lisible par-dessus les barres */
-export function PlageV({ p, tl, color, label, titre }) {
-  const t0 = tl.pctRaw(p.date_debut), b0 = tl.pctRaw(p.date_fin);
-  if (b0 <= 0 || t0 >= 100) return null;
-  const top = Math.max(0, t0), hh = Math.max(Math.min(100, b0) - top, 1);
-  return (
-    <>
-      <div title={titre} className="absolute inset-x-0 cursor-help" style={{ top: `${top}%`, height: `${hh}%` }}>
-        <div className="absolute top-1 bottom-1 left-1/2 -translate-x-1/2 border-l-2 border-dashed" style={{ borderColor: color }} />
-      </div>
-      <div className="absolute inset-x-0 z-20 pointer-events-none" style={{ top: `${top}%`, height: `${hh}%` }}>
-        <span className="absolute top-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: color }} />
-        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: color }} />
-        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[9px] font-bold px-1.5 py-px rounded-md bg-white/95 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[calc(100%-4px)]" style={{ color }}>
-          {label}
-        </span>
-      </div>
-    </>
+    </div>
   );
 }
 
@@ -318,6 +360,7 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
   const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
   const prog = progression(t);
   const toutOK = prog === 5;
+  const pctDates = progressionDates(t); // % de progression basé sur les dates début → fin
   const jr = joursRestants(t.date_debut);
   const validee = t.statut_fiche === 'VALIDEE' || !t.statut_fiche;
   const soumise = t.statut_fiche === 'SOUMISE';
@@ -385,11 +428,14 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
                 <p className="text-[11px] font-bold uppercase tracking-wider text-slate-400">Plateformes et tutorats</p>
                 <div className="flex items-center gap-2">
                   <span className={`badge ${ALERTE.chip} text-[11px]`}>{ALERTE.txt}</span>
-                  <span className="text-xs font-bold text-slate-600">{prog}/5</span>
+                  <span className="text-xs font-bold text-slate-600" title={`Progression temporelle (${t.date_debut || '—'} → ${t.date_fin || '—'}) · indicateurs : ${prog}/5`}>
+                    {Math.round(pctDates * 100)}%
+                  </span>
                 </div>
               </div>
+              {/* Progression basée sur les dates de début et de fin du tutorat */}
               <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
-                <div className={`h-full rounded-full transition-all duration-500 ${ALERTE.bar}`} style={{ width: `${(prog / 5) * 100}%` }} />
+                <div className={`h-full rounded-full transition-all duration-500 ${ALERTE.bar}`} style={{ width: `${pctDates * 100}%` }} />
               </div>
             </div>
 
@@ -473,8 +519,11 @@ export default function Tutorat() {
   const [retardModal, setRetardModal] = useState(null);
   const [vue, setVue] = useState('PLANNING');          // PLANNING | FICHES
   const [segment, setSegment] = useState(null);        // null = tous les pôles
-  const [zoom, setZoom] = useState({ mode: 'ANNEE' });
   const [detailId, setDetailId] = useState(null);      // fiche ouverte en popup
+  const [fNiveau, setFNiveau] = useState('');
+  const [fFormation, setFFormation] = useState('');
+  const [fSemestre, setFSemestre] = useState('');
+  const [fPromo, setFPromo] = useState('');
   const [vacances, setVacances] = useState([]);
   const [feries, setFeries] = useState([]);
   const [plagesPlanning, setPlagesPlanning] = useState([]); // activités type TUTORAT du Planning annuel
@@ -546,23 +595,20 @@ export default function Tutorat() {
     : null;
   useEffect(() => { if (poleCodeUser) setSegment(poleCodeUser); }, [poleCodeUser]);
 
-  const tl = useTimeline(anneeActive?.libelle || '', zoom);
-  // Fériés récurrents matérialisés dans la plage de la timeline
-  const feriesRange = useMemo(() => {
-    const out = [];
-    for (const f of feries) {
-      if (f.recurrent) {
-        const mmdd = f.date.slice(5);
-        [tl.start.getFullYear(), tl.end.getFullYear()].forEach(y => {
-          const d = `${y}-${mmdd}`;
-          if (new Date(d) >= tl.start && new Date(d) <= tl.end) out.push({ ...f, date: d });
-        });
-      } else if (new Date(f.date) >= tl.start && new Date(f.date) <= tl.end) out.push(f);
-    }
-    return out;
-  }, [feries, tl]);
+  // Filtres combinables : niveau, formation, semestre, promotion
+  const formationsDispo = useMemo(() =>
+    [...new Set(tutorats.map(t => t.formation_code || t.formation_nom).filter(Boolean))].sort(), [tutorats]);
+  const semestresDispo = useMemo(() =>
+    [...new Set(tutorats.map(t => t.semestre_code).filter(Boolean))].sort(), [tutorats]);
+  const promosDispo = useMemo(() =>
+    [...new Set(tutorats.map(t => t.promotion_code).filter(Boolean))].sort(), [tutorats]);
 
-  const tutoratsAffiches = segment ? tutorats.filter(t => t.pole_code === segment) : tutorats;
+  const tutoratsAffiches = tutorats.filter(t =>
+    (!segment || t.pole_code === segment) &&
+    (!fNiveau || t.niveau === fNiveau) &&
+    (!fFormation || (t.formation_code || t.formation_nom) === fFormation) &&
+    (!fSemestre || t.semestre_code === fSemestre) &&
+    (!fPromo || t.promotion_code === fPromo));
   const ficheDetail = tutorats.find(t => t.id === detailId);
 
   async function setDemarrageGlobal(date) {
@@ -637,7 +683,6 @@ export default function Tutorat() {
             );
           })}
           <div className="ml-auto flex items-center gap-2 flex-wrap">
-            {vue === 'PLANNING' && <ZoomBar zoom={zoom} setZoom={setZoom} libelle={anneeActive?.libelle || ''} />}
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
               {[['PLANNING', GanttChartSquare, 'Planning'], ['FICHES', List, 'Fiches']].map(([v, Icon, label]) => (
                 <button key={v} onClick={() => setVue(v)}
@@ -653,13 +698,36 @@ export default function Tutorat() {
       {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
       <PanneauSignalements cibleType="TUTORAT" user={user} />
 
-      <div className="flex gap-2">
+      <div className="flex gap-2 flex-wrap items-center">
         {['', 'PAS_DEMARRE', 'EN_COURS', 'TERMINE'].map(s => (
           <button key={s} onClick={() => setFiltreEtat(s)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${filtreEtat === s ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
             {s ? ETATS.etat_tutorat.options[s] : 'Tous'}
           </button>
         ))}
+        {/* Filtres combinables : niveau, formation, semestre, promotion */}
+        <div className="flex items-center gap-2 flex-wrap ml-auto">
+          <select value={fNiveau} onChange={e => setFNiveau(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fNiveau ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Tous niveaux</option>
+            {Object.entries(NIVEAUX).map(([k, n]) => <option key={k} value={k}>{n.label}</option>)}
+          </select>
+          <select value={fFormation} onChange={e => setFFormation(e.target.value)} className={`!w-auto !py-1.5 !text-xs max-w-44 ${fFormation ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Toutes formations</option>
+            {formationsDispo.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select value={fSemestre} onChange={e => setFSemestre(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fSemestre ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Tous semestres</option>
+            {semestresDispo.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fPromo} onChange={e => setFPromo(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fPromo ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Toutes promotions</option>
+            {promosDispo.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          {(fNiveau || fFormation || fSemestre || fPromo) && (
+            <button onClick={() => { setFNiveau(''); setFFormation(''); setFSemestre(''); setFPromo(''); }}
+              className="text-xs text-blue-600 hover:underline">Réinitialiser</button>
+          )}
+        </div>
       </div>
 
       {loading ? (
@@ -696,125 +764,57 @@ export default function Tutorat() {
           </div>
         </>
       ) : (
-        /* ===== Vue PLANNING transposée : colonnes = Pôles / Niveaux, dates à la VERTICALE ===== */
-        <div className="card !p-0 overflow-x-auto nav-scroll">
+        /* ===== Vue PLANNING : calendrier mensuel façon Google Agenda ===== */
+        <>
+          <CalendrierMois
+            vacances={vacances} feries={feries}
+            events={[
+              // Plages TUTORAT du Planning annuel : bandes pointillées
+              ...plagesPlanning.filter(p => !segment || p.pole_code === segment).map(p => ({
+                debut: p.date_debut, fin: p.date_fin, dashed: true,
+                color: (POLES_SEG[p.pole_code] || POLES_SEG.STN).color,
+                label: `📚 ${p.libelle} · ${p.ligne} (${p.pole_code})`,
+                titre: `Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`,
+              })),
+              // Fiches de suivi : bandes pleines avec le nom de la formation
+              ...tutoratsAffiches
+                .filter(t => (t.date_debut || t.date_demarree_le) && (t.date_fin || t.date_terminee_le))
+                .map(t => {
+                  const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
+                  const debut = t.date_debut || t.date_demarree_le;
+                  const fin = t.date_fin || t.date_terminee_le;
+                  return {
+                    debut, fin,
+                    color: ETAT_BAR[t.etat_tutorat] || seg.color,
+                    label: `${t.formation_code || t.formation_nom || t.pole_code} · ${t.promotion_code || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
+                    titre: `${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
+                    onClick: () => setDetailId(t.id),
+                  };
+                }),
+            ]}
+          />
+          {/* Fiches sans dates : accessibles sous le calendrier */}
           {(() => {
-            const H = hauteurTl(tl);
-            const polesAff = poles.filter(p => !segment || p.code === segment);
+            const sansDates = tutoratsAffiches.filter(t => !(t.date_debut || t.date_demarree_le) || !(t.date_fin || t.date_terminee_le));
+            if (sansDates.length === 0) return null;
             return (
-              <div className="flex min-w-fit">
-                {/* Axe du temps (colonne de gauche, figée) */}
-                <div className="shrink-0 sticky left-0 bg-white z-30 border-r border-slate-200">
-                  <div className="h-[76px] border-b border-slate-200 flex items-end justify-center pb-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                    Dates
-                  </div>
-                  <AxeTempsV tl={tl} h={H} />
-                </div>
-
-                {polesAff.map(pole => {
-                  const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
-                  const fichesPole = tutoratsAffiches.filter(t => t.pole_code === pole.code);
-                  const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
-                  // Une colonne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
-                  // reste visible au survol de la barre et dans le détail de la fiche.
-                  const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
-                  const rows = [
-                    ...Object.keys(NIVEAUX)
-                      .filter(n => fichesPole.some(t => t.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
-                      .map(n => ({
-                        key: n, label: NIVEAUX[n].label,
-                        fiches: fichesPole.filter(t => t.niveau === n),
-                        plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
-                      })),
-                    ...(fichesPole.some(t => !NIVEAUX[t.niveau])
-                      ? [{ key: 'AUTRE', label: '(niveau non précisé)', fiches: fichesPole.filter(t => !NIVEAUX[t.niveau]), plages: [] }]
-                      : []),
-                    // Plages du planning dont la ligne n'est pas un niveau standard : colonne dédiée
-                    ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
-                      .map(lg => ({ key: `P:${lg}`, label: lg, fiches: [], plages: plagesPole.filter(p => p.ligne === lg) })),
-                  ];
-                  const focus = segment === pole.code;
-                  const colW = focus ? 'w-52' : 'w-36';
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-400 font-semibold uppercase tracking-wide text-[11px]">Sans dates :</span>
+                {sansDates.map(t => {
+                  const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
                   return (
-                    <div key={pole.code} className="border-r border-slate-200 last:border-r-0">
-                      {/* Bandeau du pôle (couvre ses colonnes de niveaux) */}
-                      <div className="h-9 flex items-center justify-center gap-2 px-3 border-b border-slate-100" style={{ background: seg.light }} title={pole.nom}>
-                        <span className="font-bold text-sm" style={{ color: seg.color }}>{focus ? pole.nom : pole.code}</span>
-                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{fichesPole.length} fiche(s)</span>
-                      </div>
-                      <div className="flex">
-                        {rows.length === 0 && (
-                          <div className={colW}>
-                            <div className="h-10 border-b border-slate-100" />
-                            <div className="relative" style={{ height: H }}>
-                              <FondGrilleV tl={tl} />
-                              <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
-                              <p className="absolute top-3 inset-x-1 text-center text-[10px] text-slate-300 italic">Aucune fiche</p>
-                            </div>
-                          </div>
-                        )}
-                        {rows.map(({ key, label: nivLabel, fiches, plages }) => {
-                          const datees = fiches.filter(t => (t.date_debut || t.date_demarree_le) && (t.date_fin || t.date_terminee_le));
-                          const lanes = datees.length > 1 ? 2 : 1; // 2 couloirs si plusieurs barres datées
-                          return (
-                            <div key={key} className={`${colW} border-l border-slate-100 first:border-l-0`}>
-                              <div className="h-10 border-b border-slate-100 flex items-center justify-center px-1">
-                                <span className="text-xs font-medium text-slate-600 text-center leading-tight line-clamp-2"
-                                  title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
-                              </div>
-                              <div className="relative" style={{ height: H }}>
-                                <FondGrilleV tl={tl} />
-                                <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
-                                {plages.map((p, i) => (
-                                  <PlageV key={`pl${i}`} p={p} tl={tl} color={seg.color}
-                                    label={`📚 ${p.libelle}`}
-                                    titre={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`} />
-                                ))}
-                                {fiches.map((t, idx) => {
-                                  const debut = t.date_debut || t.date_demarree_le;
-                                  const fin = t.date_fin || t.date_terminee_le;
-                                  if ((debut && fin) && (tl.pctRaw(fin) <= 0 || tl.pctRaw(debut) >= 100)) return null; // hors fenêtre
-                                  if (!debut || !fin) {
-                                    if (tl.mode === 'MOIS') return null; // pastilles « sans dates » seulement en vue année
-                                    return (
-                                      <button key={t.id} onClick={() => setDetailId(t.id)}
-                                        title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.semestre_code || ''} — dates non renseignées (cliquer pour détails)`}
-                                        className="absolute z-10 left-1 right-1 rounded-md border-2 border-dashed px-1 py-0.5 text-[9px] font-semibold text-left truncate"
-                                        style={{ top: `${1 + idx * 4}%`, color: seg.color, borderColor: `${seg.color}66`, background: '#fff' }}>
-                                        {t.promotion_code || '?'} {t.semestre_code || ''} · sans dates
-                                      </button>
-                                    );
-                                  }
-                                  const top = tl.pct(debut), b = tl.pct(fin);
-                                  const hh = Math.max(b - top, tl.mode === 'MOIS' ? 2.5 : 1.5);
-                                  const bg = ETAT_BAR[t.etat_tutorat] || seg.color;
-                                  const lane = lanes > 1 ? datees.indexOf(t) % 2 : 0;
-                                  return (
-                                    <div key={t.id} onClick={() => setDetailId(t.id)}
-                                      title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} (cliquer pour détails)`}
-                                      className="absolute z-10 rounded-md font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60"
-                                      style={{
-                                        top: `${top}%`, height: `${hh}%`, background: bg,
-                                        left: lanes > 1 ? (lane === 0 ? '4%' : '51%') : '5%',
-                                        right: lanes > 1 ? (lane === 0 ? '51%' : '4%') : '5%',
-                                      }}>
-                                      <span className="block truncate text-[9px] px-1 pt-0.5">{t.promotion_code || ''} {t.semestre_code || ''}</span>
-                                      <span className="block truncate text-[8px] px-1 opacity-85">{ETATS.etat_tutorat.options[t.etat_tutorat]}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <button key={t.id} onClick={() => setDetailId(t.id)}
+                      title={`${t.formation_nom || 'Formation non précisée'} — dates non renseignées (cliquer pour la fiche)`}
+                      className="px-2.5 py-1 rounded-lg border-2 border-dashed bg-white font-semibold hover:bg-slate-50"
+                      style={{ color: seg.color, borderColor: `${seg.color}66` }}>
+                      {t.formation_code || t.formation_nom || t.pole_code} · {t.promotion_code || '?'} {t.semestre_code || ''}
+                    </button>
                   );
                 })}
               </div>
             );
           })()}
-        </div>
+        </>
       )}
 
       {/* Légende de la vue planning */}
@@ -823,8 +823,10 @@ export default function Tutorat() {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#94a3b8' }} /> En attente de démarrage</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#2563eb' }} /> En cours (couleur du pôle)</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#16a34a' }} /> Terminé</span>
-          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-500/25 border border-red-300" /> Vacances</span>
-          <span>Cliquez sur une barre pour afficher et modifier la fiche.</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border-2 border-dashed border-slate-400 bg-white" /> Plage du Planning annuel</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-50 border border-red-200" /> Vacances</span>
+          <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" /> Férié</span>
+          <span>Cliquez sur une bande pour afficher et modifier la fiche.</span>
         </div>
       )}
 

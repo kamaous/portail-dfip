@@ -3,8 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, ClipboardCheck, Trash2, Calendar, Gavel, LayoutGrid, GanttChartSquare, List, CheckSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { SelecteurCursus, NIVEAUX, hauteurTl, AxeTempsV, FondGrilleV, OverlaysV, PlageV } from './Tutorat';
-import { useTimeline, ZoomBar } from './PlanningAnnuel';
+import { SelecteurCursus, NIVEAUX, CalendrierMois } from './Tutorat';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
@@ -180,8 +179,11 @@ export default function Evaluations() {
   const [filtreType, setFiltreType] = useState('');
   const [vue, setVue] = useState('PLANNING');
   const [segment, setSegment] = useState(null);
-  const [zoom, setZoom] = useState({ mode: 'ANNEE' });
   const [detailId, setDetailId] = useState(null);
+  const [fNiveau, setFNiveau] = useState('');
+  const [fFormation, setFFormation] = useState('');
+  const [fSemestre, setFSemestre] = useState('');
+  const [fPromo, setFPromo] = useState('');
   const [vacances, setVacances] = useState([]);
   const [feries, setFeries] = useState([]);
   const [motifModal, setMotifModal] = useState(null);
@@ -257,22 +259,21 @@ export default function Evaluations() {
   useEffect(() => { if (poleCodeUser) setSegment(poleCodeUser); }, [poleCodeUser]);
 
   const anneeActive = annees.find(a => a.active);
-  const tl = useTimeline(anneeActive?.libelle || '', zoom);
-  const feriesRange = useMemo(() => {
-    const out = [];
-    for (const f of feries) {
-      if (f.recurrent) {
-        const mmdd = f.date.slice(5);
-        [tl.start.getFullYear(), tl.end.getFullYear()].forEach(y => {
-          const d = `${y}-${mmdd}`;
-          if (new Date(d) >= tl.start && new Date(d) <= tl.end) out.push({ ...f, date: d });
-        });
-      } else if (new Date(f.date) >= tl.start && new Date(f.date) <= tl.end) out.push(f);
-    }
-    return out;
-  }, [feries, tl]);
 
-  const affiches = segment ? items.filter(s => s.pole_code === segment) : items;
+  // Filtres combinables : niveau, formation, semestre, promotion
+  const formationsDispo = useMemo(() =>
+    [...new Set(items.map(s => s.formation_code || s.formation_nom).filter(Boolean))].sort(), [items]);
+  const semestresDispo = useMemo(() =>
+    [...new Set(items.map(s => s.semestre_code).filter(Boolean))].sort(), [items]);
+  const promosDispo = useMemo(() =>
+    [...new Set(items.map(s => s.promotion_code).filter(Boolean))].sort(), [items]);
+
+  const affiches = items.filter(s =>
+    (!segment || s.pole_code === segment) &&
+    (!fNiveau || s.niveau === fNiveau) &&
+    (!fFormation || (s.formation_code || s.formation_nom) === fFormation) &&
+    (!fSemestre || s.semestre_code === fSemestre) &&
+    (!fPromo || s.promotion_code === fPromo));
   const detail = items.find(s => s.id === detailId);
   const selectionnables = affiches.filter(s => s.etat_eval === 'EVAL_TERMINEES' && (user?.role !== 'RESPONSABLE_POLE' || s.pole_id === user?.pole_id));
   const toggleSel = id => setSelection(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
@@ -312,7 +313,6 @@ export default function Evaluations() {
             );
           })}
           <div className="ml-auto flex items-center gap-2 flex-wrap">
-            {vue === 'PLANNING' && <ZoomBar zoom={zoom} setZoom={setZoom} libelle={anneeActive?.libelle || ''} />}
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
               {[['PLANNING', GanttChartSquare, 'Planning'], ['CARTES', List, 'Cartes']].map(([v, Icon, label]) => (
                 <button key={v} onClick={() => setVue(v)}
@@ -339,6 +339,30 @@ export default function Evaluations() {
               className="ml-auto btn-primary !py-1.5 text-xs !bg-purple-600 hover:!bg-purple-700 disabled:opacity-40 flex items-center gap-1.5">
               <Gavel size={13} /> Délibérations ({selection.length})
             </button>
+          )}
+        </div>
+        {/* Filtres combinables : niveau, formation, semestre, promotion */}
+        <div className="flex gap-2 mt-2.5 pt-2.5 border-t border-slate-100 flex-wrap items-center">
+          <span className="text-xs text-slate-400 font-medium">Filtres :</span>
+          <select value={fNiveau} onChange={e => setFNiveau(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fNiveau ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Tous niveaux</option>
+            {Object.entries(NIVEAUX).map(([k, n]) => <option key={k} value={k}>{n.label}</option>)}
+          </select>
+          <select value={fFormation} onChange={e => setFFormation(e.target.value)} className={`!w-auto !py-1.5 !text-xs max-w-44 ${fFormation ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Toutes formations</option>
+            {formationsDispo.map(f => <option key={f} value={f}>{f}</option>)}
+          </select>
+          <select value={fSemestre} onChange={e => setFSemestre(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fSemestre ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Tous semestres</option>
+            {semestresDispo.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+          <select value={fPromo} onChange={e => setFPromo(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fPromo ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+            <option value="">Toutes promotions</option>
+            {promosDispo.map(p => <option key={p} value={p}>{p}</option>)}
+          </select>
+          {(fNiveau || fFormation || fSemestre || fPromo) && (
+            <button onClick={() => { setFNiveau(''); setFFormation(''); setFSemestre(''); setFPromo(''); }}
+              className="text-xs text-blue-600 hover:underline">Réinitialiser</button>
           )}
         </div>
       </div>
@@ -378,115 +402,54 @@ export default function Evaluations() {
           </div>
         </>
       ) : (
-        /* ===== Vue PLANNING transposée : colonnes = Pôles / Niveaux, dates à la VERTICALE ===== */
-        <div className="card !p-0 overflow-x-auto nav-scroll">
+        /* ===== Vue PLANNING : calendrier mensuel façon Google Agenda ===== */
+        <>
+          <CalendrierMois
+            vacances={vacances} feries={feries}
+            events={[
+              // Plages EVALUATIONS du Planning annuel : bandes pointillées
+              ...plagesPlanning.filter(p => !segment || p.pole_code === segment).map(p => ({
+                debut: p.date_debut, fin: p.date_fin, dashed: true,
+                color: (POLES_SEG[p.pole_code] || POLES_SEG.STN).color,
+                label: `${p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} ${p.libelle} · ${p.ligne} (${p.pole_code})`,
+                titre: `Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`,
+              })),
+              // Évaluations saisies : bandes pleines avec le nom de la formation
+              ...affiches.filter(s => s.date_demarrage).map(s => {
+                const seg = POLES_SEG[s.pole_code] || POLES_SEG.STN;
+                const fin = s.date_fin_prevue || s.date_demarrage;
+                return {
+                  debut: s.date_demarrage, fin,
+                  color: s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color),
+                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${s.formation_code || s.formation_nom || s.pole_code} · S${s.session_num} ${s.promotion_code || ''} ${s.semestre_code || ''}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
+                  titre: `${s.formation_nom || 'Formation non précisée'} — ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
+                  onClick: () => setDetailId(s.id),
+                };
+              }),
+            ]}
+          />
+          {/* Évaluations sans date de démarrage : accessibles sous le calendrier */}
           {(() => {
-            const H = hauteurTl(tl);
-            const polesAff = poles.filter(p => !segment || p.code === segment);
+            const sansDates = affiches.filter(s => !s.date_demarrage);
+            if (sansDates.length === 0) return null;
             return (
-              <div className="flex min-w-fit">
-                {/* Axe du temps (colonne de gauche, figée) */}
-                <div className="shrink-0 sticky left-0 bg-white z-30 border-r border-slate-200">
-                  <div className="h-[76px] border-b border-slate-200 flex items-end justify-center pb-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
-                    Dates
-                  </div>
-                  <AxeTempsV tl={tl} h={H} />
-                </div>
-
-                {polesAff.map(pole => {
-                  const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
-                  const sessPole = affiches.filter(s => s.pole_code === pole.code);
-                  const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
-                  // Une colonne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
-                  // reste visible au survol de la barre et dans le détail de l'évaluation.
-                  const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
-                  const rows = [
-                    ...Object.keys(NIVEAUX)
-                      .filter(n => sessPole.some(s => s.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
-                      .map(n => ({
-                        key: n, label: NIVEAUX[n].label,
-                        sess: sessPole.filter(s => s.niveau === n),
-                        plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
-                      })),
-                    ...(sessPole.some(s => !NIVEAUX[s.niveau])
-                      ? [{ key: 'AUTRE', label: '(niveau non précisé)', sess: sessPole.filter(s => !NIVEAUX[s.niveau]), plages: [] }]
-                      : []),
-                    // Plages du planning dont la ligne n'est pas un niveau standard : colonne dédiée
-                    ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
-                      .map(lg => ({ key: `P:${lg}`, label: lg, sess: [], plages: plagesPole.filter(p => p.ligne === lg) })),
-                  ];
-                  const focus = segment === pole.code;
-                  const colW = focus ? 'w-52' : 'w-36';
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className="text-slate-400 font-semibold uppercase tracking-wide text-[11px]">Sans dates :</span>
+                {sansDates.map(s => {
+                  const seg = POLES_SEG[s.pole_code] || POLES_SEG.STN;
                   return (
-                    <div key={pole.code} className="border-r border-slate-200 last:border-r-0">
-                      {/* Bandeau du pôle (couvre ses colonnes de niveaux) */}
-                      <div className="h-9 flex items-center justify-center gap-2 px-3 border-b border-slate-100" style={{ background: seg.light }} title={pole.nom}>
-                        <span className="font-bold text-sm" style={{ color: seg.color }}>{focus ? pole.nom : pole.code}</span>
-                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{sessPole.length} évaluation(s)</span>
-                      </div>
-                      <div className="flex">
-                        {rows.length === 0 && (
-                          <div className={colW}>
-                            <div className="h-10 border-b border-slate-100" />
-                            <div className="relative" style={{ height: H }}>
-                              <FondGrilleV tl={tl} />
-                              <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
-                              <p className="absolute top-3 inset-x-1 text-center text-[10px] text-slate-300 italic">Aucune évaluation</p>
-                            </div>
-                          </div>
-                        )}
-                        {rows.map(({ key, label: nivLabel, sess, plages }) => {
-                          const datees = sess.filter(s => s.date_demarrage);
-                          const lanes = datees.length > 1 ? 2 : 1; // 2 couloirs si plusieurs barres datées
-                          return (
-                            <div key={key} className={`${colW} border-l border-slate-100 first:border-l-0`}>
-                              <div className="h-10 border-b border-slate-100 flex items-center justify-center px-1">
-                                <span className="text-xs font-medium text-slate-600 text-center leading-tight line-clamp-2"
-                                  title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
-                              </div>
-                              <div className="relative" style={{ height: H }}>
-                                <FondGrilleV tl={tl} />
-                                <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
-                                {plages.map((p, i) => (
-                                  <PlageV key={`pl${i}`} p={p} tl={tl} color={seg.color}
-                                    label={`${p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} ${p.libelle}`}
-                                    titre={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`} />
-                                ))}
-                                {sess.map(s => {
-                                  const debut = s.date_demarrage, fin = s.date_fin_prevue || s.date_demarrage;
-                                  if (!debut) return null;
-                                  const t0 = tl.pctRaw(debut), b0 = tl.pctRaw(fin);
-                                  if (b0 <= 0 || t0 >= 100) return null;
-                                  const top = Math.max(0, t0);
-                                  const hh = Math.max(Math.min(100, b0) - top, tl.mode === 'MOIS' ? 2.5 : 1.5);
-                                  const bg = s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color);
-                                  const lane = lanes > 1 ? datees.indexOf(s) % 2 : 0;
-                                  return (
-                                    <div key={s.id} onClick={() => setDetailId(s.id)}
-                                      title={`${s.formation_nom || 'Formation non précisée'} — ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${debut} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''}`}
-                                      className={`absolute z-10 rounded-md font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${s.session_num > 1 ? 'border-2 border-white/70 border-dashed' : ''}`}
-                                      style={{
-                                        top: `${top}%`, height: `${hh}%`, background: bg,
-                                        left: lanes > 1 ? (lane === 0 ? '4%' : '51%') : '5%',
-                                        right: lanes > 1 ? (lane === 0 ? '51%' : '4%') : '5%',
-                                      }}>
-                                      <span className="block truncate text-[9px] px-1 pt-0.5">{s.type_evaluation === 'DEVOIR' ? '📝' : ''} S{s.session_num} {s.promotion_code || ''} {s.semestre_code || ''}{s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}</span>
-                                      <span className="block truncate text-[8px] px-1 opacity-85">{ETAT_EVAL.options[s.etat_eval]}</span>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
+                    <button key={s.id} onClick={() => setDetailId(s.id)}
+                      title={`${s.formation_nom || 'Formation non précisée'} — date de démarrage non renseignée (cliquer pour les détails)`}
+                      className="px-2.5 py-1 rounded-lg border-2 border-dashed bg-white font-semibold hover:bg-slate-50"
+                      style={{ color: seg.color, borderColor: `${seg.color}66` }}>
+                      {s.formation_code || s.formation_nom || s.pole_code} · S{s.session_num} {s.promotion_code || '?'} {s.semestre_code || ''}
+                    </button>
                   );
                 })}
               </div>
             );
           })()}
-        </div>
+        </>
       )}
 
       {vue === 'PLANNING' && !loading && (
@@ -495,7 +458,8 @@ export default function Evaluations() {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#f59e0b' }} /> Évaluations en cours</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#16a34a' }} /> Terminées</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#dc2626' }} /> Annulée</span>
-          <span>📝 = devoir · bord pointillé = session 2/3 · ⚖ = délibéré</span>
+          <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border-2 border-dashed border-slate-400 bg-white" /> Plage du Planning annuel</span>
+          <span>📝 = devoir · S1/S2/S3 = session · ⚖ = délibéré · Cliquez sur une bande pour les détails.</span>
         </div>
       )}
 

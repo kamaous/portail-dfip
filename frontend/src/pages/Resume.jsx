@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { BookOpen, ClipboardCheck, FlaskConical, Gavel, RefreshCw } from 'lucide-react';
-import { OK_CIBLES } from './Tutorat';
+import { progressionDates } from './Tutorat';
 
 /* Module RÉSUMÉ — inspiré du classeur « Calendrier académique UN-CHK » :
    - Volets Tutorat / Évaluations (filtre principal)
@@ -26,7 +26,7 @@ const ETAT_TUT = {
 const SESSION_LABEL = { 1: 'Normale', 2: 'Rattrapage', 3: 'Spéciale' };
 const STATUTS_SUIVI = ['Examen à programmer', 'Examen programmé', 'Évaluations en cours', 'Examen terminé', 'Terminé et délibéré', 'Examen annulé'];
 
-const progTut = (t) => Object.entries(OK_CIBLES).filter(([k, v]) => t[k] === v).length / 5;
+const progTut = progressionDates; // progression du tutorat basée sur les dates début → fin
 /* Progression d'une évaluation : 5 jalons (programmée, épreuves reçues,
    implémentées, évaluations terminées, délibérée) */
 const progEval = (e) => [
