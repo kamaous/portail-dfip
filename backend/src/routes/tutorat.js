@@ -248,6 +248,20 @@ router.put('/:id', auth, (req, res) => {
     db.prepare(`UPDATE tutorat SET ${sets.join(', ')}, updated_at=datetime('now') WHERE id=?`).run(...vals);
   }
 
+  // Modification par le créateur (Responsable pédagogique) d'une fiche déjà validée :
+  // la fiche repasse SOUMISE et le Chef division Technopédagogie doit la re-valider.
+  if (!estChef && sets.length > 0 && prev.statut_fiche === 'VALIDEE') {
+    db.prepare("UPDATE tutorat SET statut_fiche = 'SOUMISE', updated_at = datetime('now') WHERE id = ?").run(req.params.id);
+    const filiere = prev.formation_id ? db.prepare('SELECT nom FROM formations WHERE id = ?').get(prev.formation_id) : null;
+    const chefs = db.prepare("SELECT * FROM users WHERE role = 'CHEF_DIV_TECHNOPEDAGOGIE' AND actif = 1").all();
+    const ins = db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)');
+    for (const c of chefs) {
+      const msg = `${req.user.prenom} ${req.user.nom} a modifié la fiche tutorat ${filiere?.nom || ''} (${prev.niveau || ''} ${prev.semestre_code || ''}) : elle repasse en attente de votre validation.`;
+      ins.run(c.id, '📝 Fiche tutorat modifiée — à revalider', msg, 'TUTORAT', '/tutorat');
+      sendEmail({ to: c.email, subject: '[Portail DFIP] Fiche tutorat modifiée — à revalider', html: `<p>${msg}</p>` });
+    }
+  }
+
   // Notifier si l'état global du tutorat change
   if (req.body.etat_tutorat && req.body.etat_tutorat !== prev.etat_tutorat) {
     const labels = { PAS_DEMARRE: 'Pas encore démarré', EN_COURS: 'En cours', TERMINE: 'Terminé' };

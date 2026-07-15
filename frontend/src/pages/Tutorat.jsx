@@ -27,8 +27,8 @@ const ETATS = {
   enrolement_enseignants: { label: 'Enseignants concepteurs', ...ENROLEMENT },
   etat_tutorat: {
     label: 'État du tutorat',
-    options: { PAS_DEMARRE: 'En attente de démarrage', EN_COURS: 'En cours', TERMINE: 'Terminé' },
-    colors: { PAS_DEMARRE: 'bg-slate-100 text-slate-600', EN_COURS: 'bg-blue-100 text-blue-700', TERMINE: 'bg-green-100 text-green-700' },
+    options: { PAS_DEMARRE: 'En attente de démarrage', PRET: 'Prêt pour démarrage', EN_COURS: 'En cours', TERMINE: 'Terminé' },
+    colors: { PAS_DEMARRE: 'bg-slate-100 text-slate-600', PRET: 'bg-teal-100 text-teal-700', EN_COURS: 'bg-blue-100 text-blue-700', TERMINE: 'bg-green-100 text-green-700' },
   },
 };
 
@@ -38,7 +38,23 @@ const POLES_SEG = {
   STN: { color: '#16a34a', light: '#e8f6ec' },
   SEJA: { color: '#ea580c', light: '#fdeee3' },
 };
-const ETAT_BAR = { PAS_DEMARRE: '#94a3b8', EN_COURS: null, TERMINE: '#16a34a' }; // null = couleur du pôle
+const ETAT_BAR = { PAS_DEMARRE: '#94a3b8', PRET: '#0d9488', EN_COURS: null, TERMINE: '#16a34a' }; // null = couleur du pôle
+
+/* État AUTOMATIQUE du tutorat, déduit des conditions de démarrage et des dates :
+   - conditions non réunies → En attente de démarrage
+   - conditions réunies avant la date de démarrage → Prêt pour démarrage
+   - conditions réunies et date de fin atteinte → Terminé
+   - sinon → En cours */
+export function etatTutoratAuto(t) {
+  if (t.statut_fiche === 'SOUMISE' || t.statut_fiche === 'REJETEE') return 'PAS_DEMARRE';
+  const ok = Object.entries(OK_CIBLES).every(([k, v]) => t[k] === v);
+  if (!ok) return 'PAS_DEMARRE';
+  const d = t.date_demarree_le || t.date_debut, f = t.date_terminee_le || t.date_fin;
+  const now = Date.now();
+  if (d && now < Date.parse(d)) return 'PRET';
+  if (f && now >= Date.parse(f)) return 'TERMINE';
+  return 'EN_COURS';
+}
 
 /* Ligne d'indicateur de la section PLATEFORMES ET TUTORATS */
 function IndicRow({ field, value, onChange, editable }) {
@@ -74,16 +90,18 @@ export const NIVEAUX = {
   M2: { label: 'Master 2', cycle: 'MASTER', semestres: ['S3'] },
 };
 
-/* Progression temporelle du tutorat : basée sur les dates de début et de fin
-   (temps écoulé entre les deux ; Terminé = 100 %) */
+/* Progression du tutorat — quota officiel :
+   1. Validation de la fiche : 10 %
+   2. Écoulement de la durée fixée (démarrage → fin prévue) : 90 % */
 export function progressionDates(t) {
-  if (t.etat_tutorat === 'TERMINE') return 1;
-  const d = t.date_debut || t.date_demarree_le, f = t.date_fin || t.date_terminee_le;
-  if (!d || !f) return 0;
-  const a = Date.parse(d), b = Date.parse(f), now = Date.now();
-  if (b <= a || now <= a) return 0;
-  if (now >= b) return 1;
-  return (now - a) / (b - a);
+  const valide = (t.statut_fiche === 'VALIDEE' || !t.statut_fiche) ? 0.10 : 0;
+  const d = t.date_demarree_le || t.date_debut, f = t.date_terminee_le || t.date_fin;
+  let temps = 0;
+  if (d && f) {
+    const a = Date.parse(d), b = Date.parse(f), now = Date.now();
+    temps = b <= a ? (now >= b ? 1 : 0) : Math.min(1, Math.max(0, (now - a) / (b - a)));
+  }
+  return valide + 0.90 * temps;
 }
 
 /* ===== Calendrier mensuel façon Google Agenda =====
@@ -93,7 +111,7 @@ export function progressionDates(t) {
 const MOIS_FR = ['Janvier', 'Février', 'Mars', 'Avril', 'Mai', 'Juin', 'Juillet', 'Août', 'Septembre', 'Octobre', 'Novembre', 'Décembre'];
 const isoJour = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
-export function CalendrierMois({ events, vacances = [], feries = [] }) {
+export function CalendrierMois({ events, vacances = [], feries = [], onDayClick }) {
   const [mois, setMois] = useState(() => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), 1); });
   const aujourd = isoJour(new Date());
 
@@ -160,8 +178,10 @@ export function CalendrierMois({ events, vacances = [], feries = [] }) {
               const ferie = feries.find(f => f.recurrent ? f.date.slice(5) === jISO.slice(5) : f.date === jISO);
               const enVacances = vacances.some(v => v.date_debut <= jISO && jISO <= v.date_fin);
               return (
-                <div key={di} className={`border-l border-slate-100 first:border-l-0 px-1.5 pt-1 ${horsMois ? 'bg-slate-50/70' : ''} ${enVacances ? '!bg-red-50/70' : ''}`}
-                  title={[ferie && `Férié : ${ferie.libelle}`, enVacances && 'Vacances'].filter(Boolean).join(' · ') || undefined}>
+                <div key={di}
+                  onClick={onDayClick ? () => onDayClick(jISO) : undefined}
+                  className={`border-l border-slate-100 first:border-l-0 px-1.5 pt-1 ${horsMois ? 'bg-slate-50/70' : ''} ${enVacances ? '!bg-red-50/70' : ''} ${onDayClick ? 'cursor-pointer hover:bg-blue-50/60' : ''}`}
+                  title={[ferie && `Férié : ${ferie.libelle}`, enVacances && 'Vacances', onDayClick && `Cliquer pour créer au ${jISO}`].filter(Boolean).join(' · ') || undefined}>
                   <div className="flex items-center gap-1">
                     <span className={`text-xs w-6 h-6 flex items-center justify-center rounded-full ${jISO === aujourd ? 'bg-blue-600 text-white font-bold' : horsMois ? 'text-slate-300' : 'text-slate-600 font-medium'}`}>
                       {j.getDate()}
@@ -266,13 +286,13 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
   );
 }
 
-function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
+function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, onCreated }) {
   const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE'; // pôle verrouillé + fiche soumise à validation
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
-    date_debut: '', date_fin: '',
+    date_debut: defaultDebut || '', date_fin: '',
   });
   const [loading, setLoading] = useState(false);
   const [plages, setPlages] = useState(null);
@@ -356,11 +376,14 @@ function ModalTutorat({ poles, promotions, annees, user, onClose, onCreated }) {
   );
 }
 
-function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canWrite, canValider, peutSignaler }) {
+function FicheCard({ t, onChange, onRetard, onDelete, onValider, onSaveEtat, onSaveDates, estCreateur, canDelete, canWrite, canValider, peutSignaler }) {
   const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
   const prog = progression(t);
   const toutOK = prog === 5;
-  const pctDates = progressionDates(t); // % de progression basé sur les dates début → fin
+  const pctDates = progressionDates(t); // quota : 10 % validation + 90 % durée écoulée
+  const etatAuto = etatTutoratAuto(t);  // état calculé automatiquement
+  const [editionDates, setEditionDates] = useState(false);
+  const [datesForm, setDatesForm] = useState({ date_debut: t.date_debut || '', date_fin: t.date_fin || '' });
   const jr = joursRestants(t.date_debut);
   const validee = t.statut_fiche === 'VALIDEE' || !t.statut_fiche;
   const soumise = t.statut_fiche === 'SOUMISE';
@@ -390,8 +413,8 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
             {soumise && <span className="badge bg-amber-400 text-amber-950">⏳ À valider</span>}
             {rejetee && <span className="badge bg-red-200 text-red-800">Rejetée</span>}
             {validee && (
-              <span className={`badge ${t.etat_tutorat === 'EN_COURS' ? 'bg-white text-blue-700' : t.etat_tutorat === 'TERMINE' ? 'bg-green-300 text-green-900' : 'bg-white/25 text-white'}`}>
-                {ETATS.etat_tutorat.options[t.etat_tutorat]}
+              <span className={`badge ${etatAuto === 'EN_COURS' ? 'bg-white text-blue-700' : etatAuto === 'TERMINE' ? 'bg-green-300 text-green-900' : etatAuto === 'PRET' ? 'bg-teal-200 text-teal-900' : 'bg-white/25 text-white'}`}>
+                {ETATS.etat_tutorat.options[etatAuto]}
               </span>
             )}
           </div>
@@ -448,38 +471,60 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, canDelete, canW
               <IndicRow field="enrolement_enseignants" value={t.enrolement_enseignants} onChange={(f, v) => onChange(t.id, f, v)} editable={editable} />
             </div>
 
-            {/* État tutorat : verrouillé tant que tout n'est pas OK */}
-            <div className={`flex items-center gap-3 rounded-xl p-3 border ${toutOK ? 'bg-blue-50/60 border-blue-100' : 'bg-slate-50 border-slate-200'}`}>
-              <span className="text-sm font-semibold text-slate-700 flex-1">État du tutorat</span>
-              {!toutOK ? (
-                <span className="text-xs text-slate-500 flex items-center gap-1.5" title="Plateforme et cours disponibles + les 3 enrôlements effectifs requis">
-                  🔒 <span className="badge bg-slate-200 text-slate-600">{ETATS.etat_tutorat.options.PAS_DEMARRE}</span>
-                  <span className="hidden sm:inline">— tout doit être OK pour démarrer</span>
-                </span>
-              ) : editable ? (
-                <select value={t.etat_tutorat} onChange={e => onChange(t.id, 'etat_tutorat', e.target.value)}
-                  className={`!w-auto !py-1 !text-xs font-semibold rounded-lg border-0 ${ETATS.etat_tutorat.colors[t.etat_tutorat]}`}>
-                  {Object.entries(ETATS.etat_tutorat.options).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
-              ) : (
-                <span className={`badge ${ETATS.etat_tutorat.colors[t.etat_tutorat]}`}>{ETATS.etat_tutorat.options[t.etat_tutorat]}</span>
-              )}
+            {/* Enregistrer l'état : le Chef Technopédagogie peut revenir modifier à tout moment */}
+            {editable && (
+              <button onClick={() => onSaveEtat(t)}
+                className="btn-primary w-full !py-2 text-xs flex items-center justify-center gap-1.5">
+                💾 Enregistrer l'état
+              </button>
+            )}
+
+            {/* État tutorat : AUTOMATIQUE (conditions de démarrage + dates) */}
+            <div className={`flex items-center gap-3 rounded-xl p-3 border ${toutOK ? 'bg-blue-50/60 border-blue-100' : 'bg-slate-50 border-slate-200'}`}
+              title="Prêt pour démarrage : conditions réunies avant la date de démarrage · Terminé : conditions réunies et date de fin atteinte · En cours : sinon">
+              <span className="text-sm font-semibold text-slate-700 flex-1">
+                État du tutorat <span className="text-[10px] font-normal text-slate-400">(automatique)</span>
+              </span>
+              <span className={`badge ${ETATS.etat_tutorat.colors[etatAuto]}`}>{ETATS.etat_tutorat.options[etatAuto]}</span>
             </div>
 
-            {/* Dates effectives */}
-            {(editable || t.date_demarree_le || t.date_terminee_le) && (
-              <div className="grid grid-cols-2 gap-3">
-                {[['date_demarree_le', 'Démarré le'], ['date_terminee_le', 'Terminé le']].map(([f, label]) => (
-                  <div key={f} className="bg-slate-50 rounded-xl px-3 py-2">
-                    <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">{label}</p>
-                    {editable ? (
-                      <input type="date" value={t[f] || ''} onChange={e => onChange(t.id, f, e.target.value)} className="!py-0.5 !text-xs !bg-transparent !border-0 !px-0" />
-                    ) : <p className="text-xs font-semibold text-slate-700">{t[f] || '—'}</p>}
-                  </div>
-                ))}
-              </div>
-            )}
+            {/* Dates : démarrage par défaut = date soumise par le RP, fin prévue par défaut = date de fin donnée */}
+            <div className="grid grid-cols-2 gap-3">
+              {[['date_demarree_le', 'Date de démarrage', t.date_debut], ['date_terminee_le', 'Date de fin prévue', t.date_fin]].map(([f, label, defaut]) => (
+                <div key={f} className="bg-slate-50 rounded-xl px-3 py-2">
+                  <p className="text-[10px] uppercase tracking-wide text-slate-400 mb-0.5">{label}{!t[f] && defaut ? ' (par défaut)' : ''}</p>
+                  {editable ? (
+                    <input type="date" value={t[f] || defaut || ''} onChange={e => onChange(t.id, f, e.target.value)} className="!py-0.5 !text-xs !bg-transparent !border-0 !px-0" />
+                  ) : <p className="text-xs font-semibold text-slate-700">{t[f] || defaut || '—'}</p>}
+                </div>
+              ))}
+            </div>
           </>
+        )}
+
+        {/* Édition par le créateur (Responsable pédagogique) : soumise à re-validation du Chef Technopédagogie */}
+        {estCreateur && !rejetee && !t.activite_id && (
+          <div className="border border-blue-100 bg-blue-50/50 rounded-xl p-3 space-y-2">
+            {!editionDates ? (
+              <button onClick={() => { setDatesForm({ date_debut: t.date_debut || '', date_fin: t.date_fin || '' }); setEditionDates(true); }}
+                className="text-xs font-semibold text-blue-700 hover:underline">
+                ✏️ Modifier les dates de la fiche
+              </button>
+            ) : (
+              <>
+                <p className="text-[11px] text-blue-700">⚠️ Vos modifications seront <strong>soumises à la validation du Chef de division Technopédagogie</strong>.</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <input type="date" value={datesForm.date_debut} onChange={e => setDatesForm(d => ({ ...d, date_debut: e.target.value }))} className="!py-1 !text-xs" />
+                  <input type="date" value={datesForm.date_fin} onChange={e => setDatesForm(d => ({ ...d, date_fin: e.target.value }))} className="!py-1 !text-xs" />
+                </div>
+                <div className="flex gap-2">
+                  <button onClick={() => setEditionDates(false)} className="btn-secondary !py-1 text-xs flex-1">Annuler</button>
+                  <button onClick={async () => { await onSaveDates(t, datesForm); setEditionDates(false); }}
+                    className="btn-primary !py-1 text-xs flex-1">Enregistrer (soumis à validation)</button>
+                </div>
+              </>
+            )}
+          </div>
         )}
 
         {/* Pied de carte */}
@@ -515,6 +560,7 @@ export default function Tutorat() {
   const [annees, setAnnees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
+  const [modalDate, setModalDate] = useState(null); // date pré-remplie (clic sur un jour du calendrier)
   const [filtreEtat, setFiltreEtat] = useState('');
   const [retardModal, setRetardModal] = useState(null);
   const [vue, setVue] = useState('PLANNING');          // PLANNING | FICHES
@@ -531,7 +577,7 @@ export default function Tutorat() {
   function load() {
     setLoading(true);
     Promise.all([
-      api.get(`/tutorat${filtreEtat ? `?etat=${filtreEtat}` : ''}`),
+      api.get('/tutorat'),
       api.get('/poles'),
       api.get('/poles/promotions'),
       api.get('/dashboard/annees'),
@@ -543,7 +589,7 @@ export default function Tutorat() {
       setVacances(v.data); setFeries(f.data); setPlagesPlanning(pl.data);
     }).finally(() => setLoading(false));
   }
-  useEffect(load, [filtreEtat]);
+  useEffect(load, []);
 
   async function changeField(id, field, value) {
     setTutorats(ts => ts.map(t => t.id === id ? { ...t, [field]: value } : t)); // optimiste
@@ -577,6 +623,29 @@ export default function Tutorat() {
     toast.success('Supprimée'); load();
   }
 
+  // Enregistrement groupé de l'état (Chef Technopédagogie — modifiable à tout moment)
+  async function saveEtat(t) {
+    try {
+      await api.put(`/tutorat/${t.id}`, {
+        plateforme_cours: t.plateforme_cours, cours: t.cours,
+        enrolement_tuteurs: t.enrolement_tuteurs, enrolement_etudiants: t.enrolement_etudiants,
+        enrolement_enseignants: t.enrolement_enseignants,
+      });
+      toast.success('État enregistré — vous pourrez revenir le modifier à tout moment');
+      load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+
+  // Modification par le créateur (RP) : la fiche repasse en validation chez le Chef Technopédagogie
+  async function saveDates(t, dates) {
+    try {
+      await api.put(`/tutorat/${t.id}`, dates);
+      toast.success('Modifications enregistrées — la fiche est soumise à la re-validation du Chef Technopédagogie', { duration: 6000 });
+      load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+  const estCreateurFiche = (t) => user?.role === 'RESPONSABLE_PEDAGOGIQUE' && user?.id === t.created_by;
+
   const canDelete = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Section PLATEFORMES ET TUTORATS : Chef division Technopédagogie (aligné sur le backend)
   const canWrite = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
@@ -605,6 +674,7 @@ export default function Tutorat() {
 
   const tutoratsAffiches = tutorats.filter(t =>
     (!segment || t.pole_code === segment) &&
+    (!filtreEtat || etatTutoratAuto(t) === filtreEtat) &&
     (!fNiveau || t.niveau === fNiveau) &&
     (!fFormation || (t.formation_code || t.formation_nom) === fFormation) &&
     (!fSemestre || t.semestre_code === fSemestre) &&
@@ -626,7 +696,7 @@ export default function Tutorat() {
           <p className="text-slate-500 text-sm">{tutorats.length} fiche(s) de suivi par semestre</p>
         </div>
         {canCreate && (
-          <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2">
+          <button onClick={() => { setModalDate(null); setModal(true); }} className="btn-primary flex items-center gap-2">
             <Plus size={16} /> Nouvelle fiche
           </button>
         )}
@@ -699,7 +769,7 @@ export default function Tutorat() {
       <PanneauSignalements cibleType="TUTORAT" user={user} />
 
       <div className="flex gap-2 flex-wrap items-center">
-        {['', 'PAS_DEMARRE', 'EN_COURS', 'TERMINE'].map(s => (
+        {['', 'PAS_DEMARRE', 'PRET', 'EN_COURS', 'TERMINE'].map(s => (
           <button key={s} onClick={() => setFiltreEtat(s)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${filtreEtat === s ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'}`}>
             {s ? ETATS.etat_tutorat.options[s] : 'Tous'}
@@ -759,7 +829,9 @@ export default function Tutorat() {
           })()}
           <div className="grid lg:grid-cols-2 gap-4">
             {tutoratsAffiches.map(t => (
-              <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider} canDelete={canDelete} canWrite={canWrite} canValider={canValider} peutSignaler={peutSignaler} />
+              <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider}
+                onSaveEtat={saveEtat} onSaveDates={saveDates} estCreateur={estCreateurFiche(t)}
+                canDelete={canDelete} canWrite={canWrite} canValider={canValider} peutSignaler={peutSignaler} />
             ))}
           </div>
         </>
@@ -768,6 +840,7 @@ export default function Tutorat() {
         <>
           <CalendrierMois
             vacances={vacances} feries={feries}
+            onDayClick={canCreate ? (d) => { setModalDate(d); setModal(true); } : undefined}
             events={[
               // Plages TUTORAT du Planning annuel : bandes pointillées
               ...plagesPlanning.filter(p => !segment || p.pole_code === segment).map(p => ({
@@ -783,12 +856,13 @@ export default function Tutorat() {
                   const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
                   const debut = t.date_debut || t.date_demarree_le;
                   const fin = t.date_fin || t.date_terminee_le;
-                  // Format : Promotion - Formation Niveau Semestre (ex : P10 - ANG L3 S5)
+                  // Format : [Pôle ·] Promotion - Formation Niveau Semestre (ex : P10 - ANG L3 S5)
+                  const etat = etatTutoratAuto(t);
                   return {
                     debut, fin,
-                    color: ETAT_BAR[t.etat_tutorat] || seg.color,
-                    label: `${t.promotion_code || '?'} - ${t.formation_code || t.formation_nom || t.pole_code} ${t.niveau || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
-                    titre: `Promotion ${t.promotion_code || '?'} — ${t.formation_nom || 'Formation non précisée'} ${NIVEAUX[t.niveau]?.label || ''} Semestre ${(t.semestre_code || '').replace('S', '')} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
+                    color: ETAT_BAR[etat] || seg.color,
+                    label: `${!segment ? `${t.pole_code} · ` : ''}${t.promotion_code || '?'} - ${t.formation_code || t.formation_nom || t.pole_code} ${t.niveau || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
+                    titre: `${t.pole_code} — Promotion ${t.promotion_code || '?'} — ${t.formation_nom || 'Formation non précisée'} ${NIVEAUX[t.niveau]?.label || ''} Semestre ${(t.semestre_code || '').replace('S', '')} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[etat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
                     onClick: () => setDetailId(t.id),
                   };
                 }),
@@ -831,7 +905,7 @@ export default function Tutorat() {
         </div>
       )}
 
-      {modal && <ModalTutorat poles={poles} promotions={promotions} annees={annees} user={user} onClose={() => setModal(false)} onCreated={load} />}
+      {modal && <ModalTutorat poles={poles} promotions={promotions} annees={annees} user={user} defaultDebut={modalDate} onClose={() => setModal(false)} onCreated={load} />}
       {retardModal && <ModalRetard fiche={retardModal} onClose={() => setRetardModal(null)} onDone={() => { setRetardModal(null); }} />}
 
       {/* Popup détails d'une fiche (depuis la vue planning) */}
@@ -844,6 +918,9 @@ export default function Tutorat() {
               onRetard={(f) => { setDetailId(null); setRetardModal(f); }}
               onDelete={(id) => { setDetailId(null); supprimer(id); }}
               onValider={valider}
+              onSaveEtat={saveEtat}
+              onSaveDates={saveDates}
+              estCreateur={estCreateurFiche(ficheDetail)}
               canDelete={canDelete}
               canWrite={canWrite}
               canValider={canValider}

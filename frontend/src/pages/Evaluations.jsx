@@ -25,9 +25,20 @@ const ETAT_EVAL = {
   colors: { CALENDRIER_DISPONIBLE: 'bg-blue-100 text-blue-700', EVAL_EN_COURS: 'bg-amber-100 text-amber-700', EVAL_TERMINEES: 'bg-green-100 text-green-700' },
 };
 const DELIB = {
-  options: { PAS_ENCORE: 'Pas encore', PREVUE: 'Prévue le', TERMINEE: 'Terminée' },
+  options: { PAS_ENCORE: 'Pas encore', PREVUE: 'Prévue le', TERMINEE: 'Effective (clôturée)' },
   colors: { PAS_ENCORE: 'bg-slate-100 text-slate-600', PREVUE: 'bg-purple-100 text-purple-700', TERMINEE: 'bg-green-100 text-green-700' },
 };
+
+/* Progression d'une évaluation — quota officiel :
+   Réception des épreuves Disponible 10 % · Date prévue valide 15 % ·
+   Implémentation terminée 25 % · Évaluations terminées 20 % · Délibération effective 30 % */
+export function progressionEval(s) {
+  return (s.reception_epreuves === 'DISPONIBLE' ? 0.10 : 0)
+    + (s.date_programmation ? 0.15 : 0)
+    + (s.implementation_epreuves === 'TERMINE' ? 0.25 : 0)
+    + (s.etat_eval === 'EVAL_TERMINEES' ? 0.20 : 0)
+    + (s.delib_etat === 'TERMINEE' ? 0.30 : 0);
+}
 
 const POLES_SEG = {
   LSHE: { color: '#6d28d9', light: '#f0e9fb' },
@@ -37,13 +48,13 @@ const POLES_SEG = {
 const ETAT_BAR = { CALENDRIER_DISPONIBLE: null, EVAL_EN_COURS: '#f59e0b', EVAL_TERMINEES: '#16a34a' };
 
 /* ===== Modal de création (Responsable de formation, dates dans les plages du planning) ===== */
-function ModalEvaluation({ poles, promotions, annees, user, onClose, onCreated, onConflit }) {
+function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose, onCreated, onConflit }) {
   const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE'; // pôle verrouillé pour le Responsable pédagogique
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
-    session_num: 1, type_evaluation: 'EVALUATION', date_demarrage: '', date_fin_prevue: '',
+    session_num: 1, type_evaluation: 'EVALUATION', date_demarrage: defaultDate || '', date_fin_prevue: '',
   });
   const [plages, setPlages] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -181,6 +192,7 @@ export default function Evaluations() {
   const [vue, setVue] = useState('PLANNING');
   const [segment, setSegment] = useState(null);
   const [detailId, setDetailId] = useState(null);
+  const [modalDate, setModalDate] = useState(null); // date pré-remplie (clic sur un jour du calendrier)
   const [fNiveau, setFNiveau] = useState('');
   const [fFormation, setFFormation] = useState('');
   const [fSemestre, setFSemestre] = useState('');
@@ -239,8 +251,29 @@ export default function Evaluations() {
 
   async function del(id) {
     if (!confirm('Supprimer cette évaluation ?')) return;
-    await api.delete(`/evaluations/${id}`); toast.success('Supprimée'); load();
+    try {
+      const r = await api.delete(`/evaluations/${id}`);
+      toast.success(r.data?.message || 'Supprimée'); load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
+
+  // Chef div DFE : demande de suppression d'une évaluation ANNULÉE (validée par le Directeur DFIP)
+  async function demanderSuppression(id) {
+    if (!confirm('Demander la suppression de cette évaluation annulée ?\nElle ne sera effective qu\'après validation du Directeur DFIP.')) return;
+    try {
+      const r = await api.delete(`/evaluations/${id}`);
+      toast.success(r.data?.message || 'Demande transmise', { duration: 6000 }); load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+  async function refuserSuppression(id) {
+    try {
+      const r = await api.post(`/evaluations/${id}/refuser-suppression`);
+      toast.success(r.data?.message || 'Demande refusée'); load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+  // Marquer terminé : popup demandant la date de fin pour valider l'action
+  const [terminerModal, setTerminerModal] = useState(null);
+  function marquerTerminee(s) { setTerminerModal(s); }
 
   const canDelete = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Suivi : Chef de division DFE
@@ -278,7 +311,7 @@ export default function Evaluations() {
   const detail = items.find(s => s.id === detailId);
   const selectionnables = affiches.filter(s => s.etat_eval === 'EVAL_TERMINEES' && (user?.role !== 'RESPONSABLE_POLE' || s.pole_id === user?.pole_id));
   const toggleSel = id => setSelection(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
-  const propsCarte = { update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId: user?.pole_id, userRole: user?.role };
+  const propsCarte = { update, changerDate, annuler, del, demanderSuppression, refuserSuppression, marquerTerminee, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId: user?.pole_id, userRole: user?.role };
 
   return (
     <div className="space-y-6">
@@ -287,7 +320,7 @@ export default function Evaluations() {
           <h1 className="text-2xl font-bold text-slate-800">Évaluations</h1>
           <p className="text-slate-500 text-sm">{items.length} évaluation(s) · Évaluations & Devoirs · 3 sessions</p>
         </div>
-        {canCreate && <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2"><Plus size={16} /> Nouvelle évaluation</button>}
+        {canCreate && <button onClick={() => { setModalDate(null); setModal(true); }} className="btn-primary flex items-center gap-2"><Plus size={16} /> Nouvelle évaluation</button>}
       </div>
 
       {/* Segments pôles + filtres + zoom + vue */}
@@ -407,6 +440,7 @@ export default function Evaluations() {
         <>
           <CalendrierMois
             vacances={vacances} feries={feries}
+            onDayClick={canCreate ? (d) => { setModalDate(d); setModal(true); } : undefined}
             events={[
               // Plages EVALUATIONS du Planning annuel : bandes pointillées
               ...plagesPlanning.filter(p => !segment || p.pole_code === segment).map(p => ({
@@ -423,8 +457,8 @@ export default function Evaluations() {
                 return {
                   debut: s.date_demarrage, fin,
                   color: s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color),
-                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${s.promotion_code || '?'} - ${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
-                  titre: `Promotion ${s.promotion_code || '?'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
+                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${!segment ? `${s.pole_code} · ` : ''}${s.promotion_code || '?'} - ${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
+                  titre: `${s.pole_code} — Promotion ${s.promotion_code || '?'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
                   onClick: () => setDetailId(s.id),
                 };
               }),
@@ -465,7 +499,19 @@ export default function Evaluations() {
         </div>
       )}
 
-      {modal && <ModalEvaluation poles={poles} promotions={promotions} annees={annees} user={user} onClose={() => setModal(false)} onCreated={load} onConflit={setConflitInfo} />}
+      {modal && <ModalEvaluation poles={poles} promotions={promotions} annees={annees} user={user} defaultDate={modalDate} onClose={() => setModal(false)} onCreated={load} onConflit={setConflitInfo} />}
+
+      {/* Marquer terminé : date de fin demandée pour valider l'action */}
+      {terminerModal && (
+        <ModalTerminer s={terminerModal} onClose={() => setTerminerModal(null)}
+          onConfirm={async (dateFin) => {
+            const patch = terminerModal.activite_id
+              ? { etat_eval: 'EVAL_TERMINEES' } // dates pilotées par le Planning annuel
+              : { etat_eval: 'EVAL_TERMINEES', date_fin_prevue: dateFin };
+            await update(terminerModal.id, patch);
+            setTerminerModal(null);
+          }} />
+      )}
 
       {/* Popup explicite : conflit d'examens entre pôles */}
       {conflitInfo && (
@@ -527,9 +573,13 @@ export default function Evaluations() {
 }
 
 /* ===== Carte d'une évaluation ===== */
-function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId, userRole, selectable, selected, onToggleSel }) {
-  const editDates = (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE' && !s.activite_id;
-  const editDelib = (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
+function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppression, refuserSuppression, marquerTerminee, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId, userRole, selectable, selected, onToggleSel }) {
+  // Évaluation délibérée (clôturée) : plus éditable, sauf par le Directeur DFIP
+  const verrouDelib = s.delib_etat === 'TERMINEE' && !['DIRECTEUR', 'ADMIN_PORTAIL'].includes(userRole);
+  const editDates = !verrouDelib && (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE' && !s.activite_id;
+  const editSuivi = !verrouDelib && canSuivi;
+  const editDelib = !verrouDelib && (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
+  const pct = progressionEval(s);
   return (
     <div className={`card relative ${s.etat === 'ANNULE' ? 'opacity-60' : ''} ${selected ? 'ring-2 ring-purple-400' : ''}`}>
       {selectable && (
@@ -557,6 +607,21 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDe
         <span className={`badge ${ETAT_EVAL.colors[s.etat_eval]} shrink-0`}>{ETAT_EVAL.options[s.etat_eval]}</span>
       </div>
 
+      {/* Progression (quota : réception 10 % · date 15 % · implémentation 25 % · terminées 20 % · délibération 30 %) */}
+      <div className="mb-3">
+        <div className="flex items-center justify-between mb-1">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Progression</p>
+          <div className="flex items-center gap-2">
+            {verrouDelib && <span className="badge bg-purple-100 text-purple-700 text-[10px]" title="Délibération effective — modifiable uniquement par le Directeur DFIP">🔒 Clôturée</span>}
+            <span className="text-xs font-bold text-slate-600">{Math.round(pct * 100)}%</span>
+          </div>
+        </div>
+        <div className="h-2 bg-slate-100 rounded-full overflow-hidden">
+          <div className={`h-full rounded-full transition-all duration-500 ${pct >= 1 ? 'bg-green-500' : pct >= 0.5 ? 'bg-blue-500' : pct >= 0.25 ? 'bg-amber-500' : 'bg-slate-400'}`}
+            style={{ width: `${pct * 100}%` }} />
+        </div>
+      </div>
+
       {/* Dates (Responsable de formation) */}
       <div className="grid grid-cols-2 gap-3 mb-3">
         {[['date_demarrage', 'Date de démarrage'], ['date_fin_prevue', 'Date de clôture']].map(([f, label]) => (
@@ -569,18 +634,36 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDe
         ))}
       </div>
 
-      {/* Suivi — Chef de division DFE */}
+      {/* Suivi — Chef de division DFE (modifiable à tout moment tant que non délibérée) */}
       <div className="border border-slate-100 rounded-xl p-3 mb-3 space-y-2">
         <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suivi — Chef division DFE</p>
-        <LigneSelect label="Réception des épreuves" cfg={RECEPTION} value={s.reception_epreuves || 'PAS_DISPONIBLE'} editable={canSuivi} onChange={v => update(s.id, { reception_epreuves: v })} />
+        <LigneSelect label="Réception des épreuves" cfg={RECEPTION} value={s.reception_epreuves || 'PAS_DISPONIBLE'} editable={editSuivi} onChange={v => update(s.id, { reception_epreuves: v })} />
         <div className="flex items-center gap-2">
-          <span className="text-xs text-slate-500 flex-1">Date prévue pour l'évaluation</span>
-          {canSuivi ? (
+          <span className="text-xs text-slate-500 flex-1" title="Doit rester dans la plage d'évaluations du Planning annuel">Date prévue pour l'évaluation</span>
+          {editSuivi ? (
             <input type="date" value={s.date_programmation || ''} onChange={e => update(s.id, { date_programmation: e.target.value })} className="!w-auto !py-1 !text-xs" />
           ) : <span className="text-xs font-semibold text-slate-700">{s.date_programmation || '—'}</span>}
         </div>
-        <LigneSelect label="Implémentation des épreuves" cfg={IMPLEMENTATION} value={s.implementation_epreuves || 'PAS_ENCORE'} editable={canSuivi} onChange={v => update(s.id, { implementation_epreuves: v })} />
-        <LigneSelect label="État" cfg={ETAT_EVAL} value={s.etat_eval || 'CALENDRIER_DISPONIBLE'} editable={canSuivi} onChange={v => update(s.id, { etat_eval: v })} />
+        <LigneSelect label="Implémentation des épreuves" cfg={IMPLEMENTATION} value={s.implementation_epreuves || 'PAS_ENCORE'} editable={editSuivi} onChange={v => update(s.id, { implementation_epreuves: v })} />
+        <LigneSelect label="État" cfg={ETAT_EVAL} value={s.etat_eval || 'CALENDRIER_DISPONIBLE'} editable={editSuivi} onChange={v => update(s.id, { etat_eval: v })} />
+        {editSuivi && (
+          <div className="flex gap-2 pt-1">
+            <button onClick={async () => {
+              await update(s.id, {
+                reception_epreuves: s.reception_epreuves || 'PAS_DISPONIBLE',
+                date_programmation: s.date_programmation || null,
+                implementation_epreuves: s.implementation_epreuves || 'PAS_ENCORE',
+                etat_eval: s.etat_eval || 'CALENDRIER_DISPONIBLE',
+              });
+              toast.success('État enregistré — vous pourrez revenir le compléter');
+            }} className="btn-primary flex-1 !py-1.5 text-xs">💾 Enregistrer l'état</button>
+            {s.etat_eval !== 'EVAL_TERMINEES' && s.etat !== 'ANNULE' && (
+              <button onClick={() => marquerTerminee(s)} className="btn-primary flex-1 !py-1.5 text-xs !bg-green-600 hover:!bg-green-700">
+                ✔ Marquer terminé
+              </button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Délibérations — Directeur de pôle */}
@@ -612,8 +695,34 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, canSuivi, canDe
             <BoutonSignaler cibleType="EVALUATION" cibleId={s.id}
               contexte={`${s.formation_nom || s.pole_nom || ''} · ${SESSION_LABEL[s.session_num]} · ${s.date_demarrage || ''} → ${s.date_fin_prevue || ''}`} />
           )}
-          {canSuivi && <button onClick={() => annuler(s)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg">Annuler l'évaluation</button>}
-          {canDelete && !s.activite_id && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={15} /></button>}
+          {editSuivi && <button onClick={() => annuler(s)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg">Annuler l'évaluation</button>}
+          {canDelete && !s.activite_id && !verrouDelib && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded"><Trash2 size={15} /></button>}
+        </div>
+      )}
+
+      {/* Évaluation ANNULÉE : suppression par le Chef div DFE, sur validation du Directeur DFIP */}
+      {s.etat === 'ANNULE' && (canSuivi || canDelete) && !s.activite_id && (
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 mt-3 flex-wrap">
+          {s.suppr_demandee ? (
+            canDelete ? (
+              <>
+                <span className="badge bg-amber-100 text-amber-700 text-[11px]">🗑 Suppression demandée par le Chef div. DFE</span>
+                <button onClick={() => del(s.id)} className="btn-danger !py-1.5 text-xs">Valider la suppression</button>
+                <button onClick={() => refuserSuppression(s.id)} className="btn-secondary !py-1.5 text-xs">Refuser</button>
+              </>
+            ) : (
+              <span className="badge bg-amber-100 text-amber-700 text-[11px]">🗑 Suppression demandée — en attente de validation du Directeur DFIP</span>
+            )
+          ) : (
+            <>
+              {userRole === 'CHEF_DIV_EVALUATION' && (
+                <button onClick={() => demanderSuppression(s.id)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200">
+                  🗑 Demander la suppression (validation DFIP)
+                </button>
+              )}
+              {canDelete && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded" title="Supprimer"><Trash2 size={15} /></button>}
+            </>
+          )}
         </div>
       )}
     </div>
@@ -629,6 +738,42 @@ function LigneSelect({ label, cfg, value, editable, onChange }) {
           {Object.entries(cfg.options).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
         </select>
       ) : <span className={`badge ${cfg.colors[value]}`}>{cfg.options[value]}</span>}
+    </div>
+  );
+}
+
+/* Marquer une évaluation TERMINÉE : la date de fin valide l'action */
+function ModalTerminer({ s, onClose, onConfirm }) {
+  const [date, setDate] = useState(s.date_fin_prevue || new Date().toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(false);
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="p-5 border-b">
+          <h2 className="font-semibold text-slate-800">✔ Marquer l'évaluation comme terminée</h2>
+          <p className="text-xs text-slate-500 mt-1">
+            {s.formation_nom || 'Formation —'} · {SESSION_LABEL[s.session_num]} {s.niveau || ''} {s.semestre_code || ''}
+          </p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Date de fin des évaluations *</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)} autoFocus />
+            {s.activite_id && <p className="text-xs text-slate-400 mt-1">🔗 Évaluation liée au Planning annuel : ses dates restent pilotées par l'activité liée.</p>}
+          </div>
+          <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl p-2.5">
+            Le Responsable pédagogique du pôle sera notifié pour procéder à la <strong>délibération</strong>.
+          </p>
+          <div className="flex gap-2">
+            <button onClick={onClose} className="btn-secondary flex-1">Annuler</button>
+            <button disabled={!date || loading}
+              onClick={async () => { setLoading(true); await onConfirm(date); setLoading(false); }}
+              className="btn-primary flex-1 !bg-green-600 hover:!bg-green-700 disabled:opacity-40">
+              {loading ? '...' : 'Confirmer'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

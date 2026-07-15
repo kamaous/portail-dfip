@@ -550,6 +550,9 @@ function runMigrations() {
     ref_id:                 'INTEGER',
   });
 
+  // Évaluations : demande de suppression (Chef div DFE → validation Directeur DFIP)
+  addColumns('sessions_examen', { suppr_demandee: 'INTEGER NOT NULL DEFAULT 0' });
+
   // Planning annuel : lignes (niveaux) paramétrables par segment — gérées par le Directeur DFIP
   db.exec(`
     CREATE TABLE IF NOT EXISTS planning_lignes (

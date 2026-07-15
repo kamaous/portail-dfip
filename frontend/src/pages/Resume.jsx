@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import { BookOpen, ClipboardCheck, FlaskConical, Gavel, RefreshCw } from 'lucide-react';
-import { progressionDates } from './Tutorat';
+import { progressionDates, etatTutoratAuto } from './Tutorat';
+import { progressionEval } from './Evaluations';
 
 /* Module RÉSUMÉ — inspiré du classeur « Calendrier académique UN-CHK » :
    - Volets Tutorat / Évaluations (filtre principal)
@@ -20,22 +21,15 @@ const NIVEAUX_ORDRE = ['L1', 'L2', 'L3', 'M1', 'M2'];
 const NIVEAU_LABEL = { L1: 'LICENCE 1', L2: 'LICENCE 2', L3: 'LICENCE 3', M1: 'MASTER 1', M2: 'MASTER 2' };
 const ETAT_TUT = {
   PAS_DEMARRE: ['En attente de démarrage', 'bg-slate-100 text-slate-600'],
+  PRET: ['Prêt pour démarrage', 'bg-teal-100 text-teal-700'],
   EN_COURS: ['En cours', 'bg-blue-100 text-blue-700'],
   TERMINE: ['Terminé', 'bg-green-100 text-green-700'],
 };
 const SESSION_LABEL = { 1: 'Normale', 2: 'Rattrapage', 3: 'Spéciale' };
 const STATUTS_SUIVI = ['Examen à programmer', 'Examen programmé', 'Évaluations en cours', 'Examen terminé', 'Terminé et délibéré', 'Examen annulé'];
 
-const progTut = progressionDates; // progression du tutorat basée sur les dates début → fin
-/* Progression d'une évaluation : 5 jalons (programmée, épreuves reçues,
-   implémentées, évaluations terminées, délibérée) */
-const progEval = (e) => [
-  !!e.date_programmation,
-  e.reception_epreuves === 'TOTALE',
-  e.implementation_epreuves === 'TERMINE',
-  e.etat_eval === 'EVAL_TERMINEES',
-  e.delib_etat === 'TERMINEE',
-].filter(Boolean).length / 5;
+const progTut = progressionDates; // quota tutorat : 10 % validation + 90 % durée écoulée
+const progEval = progressionEval; // quota éval : réception 10 · date 15 · implémentation 25 · terminées 20 · délibération 30
 
 const fmtSemestre = (x) => x.niveau && x.semestre_code ? `${x.niveau}-Semestre ${x.semestre_code.replace('S', '')}` : (x.semestre_code || '—');
 const nomProgramme = (x) => x.formation_code || x.formation_nom || (x.pole_code ? `${x.pole_code} (pôle)` : '(pôle entier)');
@@ -138,7 +132,7 @@ export default function Resume() {
   const nbDeliberees = evalsDfip.filter(e => e.delib_etat === 'TERMINEE').length;
   const nbReportees = incidents.filter(i => i.conseq_eval === 'REPORT').length;
   /* Encart : programmes en cours avec leur taux d'exécution (tutorat en cours) */
-  const enCours = tutoratsF.filter(t => t.etat_tutorat === 'EN_COURS')
+  const enCours = tutoratsF.filter(t => etatTutoratAuto(t) === 'EN_COURS')
     .sort((a, b) => progTut(b) - progTut(a)).slice(0, 6);
 
   if (loading) return (
@@ -247,7 +241,7 @@ export default function Resume() {
                   const pctNiv = items.reduce((s, x) => s + prog(x), 0) / items.length;
                   const termines = voletEval
                     ? items.filter(e => e.etat_eval === 'EVAL_TERMINEES' || e.delib_etat === 'TERMINEE').length
-                    : items.filter(t => t.etat_tutorat === 'TERMINE').length;
+                    : items.filter(t => etatTutoratAuto(t) === 'TERMINE').length;
                   return [
                     /* Ligne d'agrégat du niveau (comme la ligne LICENCE 1 du classeur) */
                     <tr key={`niv-${niv}`} style={{ background: seg.light }}>
@@ -260,7 +254,7 @@ export default function Resume() {
                       <td className="px-4 py-2"><Barre pct={pctNiv} /></td>
                     </tr>,
                     ...items.map(x => {
-                      const [lbl, cls] = voletEval ? statutSuivi(x) : (ETAT_TUT[x.etat_tutorat] || ETAT_TUT.PAS_DEMARRE);
+                      const [lbl, cls] = voletEval ? statutSuivi(x) : (ETAT_TUT[etatTutoratAuto(x)] || ETAT_TUT.PAS_DEMARRE);
                       const debut = voletEval ? x.date_demarrage : x.date_debut;
                       const fin = voletEval ? x.date_fin_prevue : x.date_fin;
                       return (
