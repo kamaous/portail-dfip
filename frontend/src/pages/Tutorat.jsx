@@ -946,7 +946,7 @@ function ModalRetard({ fiche, onClose, onDone }) {
   }
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
         <div className="flex items-center justify-between p-5 border-b">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2"><AlertTriangle size={18} className="text-orange-500" /> Signaler un retard</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>

@@ -512,7 +512,7 @@ export default function Evaluations() {
       {/* Popup explicite : conflit d'examens entre pôles */}
       {conflitInfo && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
             <div className="bg-red-600 text-white px-5 py-4">
               <h2 className="font-bold text-lg">⛔ Conflit d'examens entre pôles</h2>
               <p className="text-red-100 text-xs mt-0.5">Deux pôles ne peuvent jamais être en évaluation simultanément.</p>
@@ -576,6 +576,12 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
   const editSuivi = !verrouDelib && canSuivi;
   const editDelib = !verrouDelib && (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
   const pct = progressionEval(s);
+
+  // BROUILLON du suivi : les changements ne s'appliquent qu'au clic « Enregistrer l'état »
+  const [draft, setDraft] = useState({});
+  const DEFAUTS = { reception_epreuves: 'PAS_DISPONIBLE', date_programmation: '', implementation_epreuves: 'PAS_ENCORE', etat_eval: 'CALENDRIER_DISPONIBLE' };
+  const val = (f) => draft[f] !== undefined ? draft[f] : (s[f] || DEFAUTS[f]);
+  const enAttente = Object.keys(draft).some(f => draft[f] !== (s[f] || DEFAUTS[f]));
   return (
     <div className={`card relative ${s.etat === 'ANNULE' ? 'opacity-60' : ''} ${selected ? 'ring-2 ring-purple-400' : ''}`}>
       {selectable && (
@@ -630,29 +636,31 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
         ))}
       </div>
 
-      {/* Suivi — Chef de division DFE (modifiable à tout moment tant que non délibérée) */}
-      <div className="border border-slate-100 rounded-xl p-3 mb-3 space-y-2">
-        <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suivi — Chef division DFE</p>
-        <LigneSelect label="Réception des épreuves" cfg={RECEPTION} value={s.reception_epreuves || 'PAS_DISPONIBLE'} editable={editSuivi} onChange={v => update(s.id, { reception_epreuves: v })} />
+      {/* Suivi — Chef de division DFE : les changements ne s'appliquent QU'AU clic « Enregistrer l'état » */}
+      <div className={`border rounded-xl p-3 mb-3 space-y-2 ${enAttente ? 'border-amber-300 bg-amber-50/40' : 'border-slate-100'}`}>
+        <div className="flex items-center justify-between">
+          <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Suivi — Chef division DFE</p>
+          {enAttente && <span className="text-[10px] font-semibold text-amber-600">Modifications non enregistrées</span>}
+        </div>
+        <LigneSelect label="Réception des épreuves" cfg={RECEPTION} value={val('reception_epreuves')} editable={editSuivi} onChange={v => setDraft(d => ({ ...d, reception_epreuves: v }))} />
         <div className="flex items-center gap-2">
           <span className="text-xs text-slate-500 flex-1" title="Doit rester dans la plage d'évaluations du Planning annuel">Date prévue pour l'évaluation</span>
           {editSuivi ? (
-            <input type="date" value={s.date_programmation || ''} onChange={e => update(s.id, { date_programmation: e.target.value })} className="!w-auto !py-1 !text-xs" />
+            <input type="date" value={val('date_programmation')} onChange={e => setDraft(d => ({ ...d, date_programmation: e.target.value }))} className="!w-auto !py-1 !text-xs" />
           ) : <span className="text-xs font-semibold text-slate-700">{s.date_programmation || '—'}</span>}
         </div>
-        <LigneSelect label="Implémentation des épreuves" cfg={IMPLEMENTATION} value={s.implementation_epreuves || 'PAS_ENCORE'} editable={editSuivi} onChange={v => update(s.id, { implementation_epreuves: v })} />
-        <LigneSelect label="État" cfg={ETAT_EVAL} value={s.etat_eval || 'CALENDRIER_DISPONIBLE'} editable={editSuivi} onChange={v => update(s.id, { etat_eval: v })} />
+        <LigneSelect label="Implémentation des épreuves" cfg={IMPLEMENTATION} value={val('implementation_epreuves')} editable={editSuivi} onChange={v => setDraft(d => ({ ...d, implementation_epreuves: v }))} />
+        <LigneSelect label="État" cfg={ETAT_EVAL} value={val('etat_eval')} editable={editSuivi} onChange={v => setDraft(d => ({ ...d, etat_eval: v }))} />
         {editSuivi && (
           <div className="flex gap-2 pt-1">
-            <button onClick={async () => {
-              await update(s.id, {
-                reception_epreuves: s.reception_epreuves || 'PAS_DISPONIBLE',
-                date_programmation: s.date_programmation || null,
-                implementation_epreuves: s.implementation_epreuves || 'PAS_ENCORE',
-                etat_eval: s.etat_eval || 'CALENDRIER_DISPONIBLE',
-              });
-              toast.success('État enregistré — vous pourrez revenir le compléter');
-            }} className="btn-primary flex-1 !py-1.5 text-xs">💾 Enregistrer l'état</button>
+            <button disabled={!enAttente}
+              onClick={async () => { await update(s.id, draft); setDraft({}); }}
+              className="btn-primary flex-1 !py-1.5 text-xs disabled:opacity-40">
+              💾 Enregistrer l'état
+            </button>
+            {enAttente && (
+              <button onClick={() => setDraft({})} className="btn-secondary !py-1.5 text-xs">Annuler</button>
+            )}
             {s.etat_eval !== 'EVAL_TERMINEES' && s.etat !== 'ANNULE' && (
               <button onClick={() => marquerTerminee(s)} className="btn-primary flex-1 !py-1.5 text-xs !bg-green-600 hover:!bg-green-700">
                 ✔ Marquer terminé
@@ -669,15 +677,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
         {s.etat_eval !== 'EVAL_TERMINEES' ? (
           <span className="text-xs text-slate-400">🔒 après « Évaluations terminées »</span>
         ) : editDelib ? (
-          <>
-            <select value={s.delib_etat || 'PAS_ENCORE'} onChange={e => update(s.id, { delib_etat: e.target.value })}
-              className={`!py-1 !text-xs !w-auto font-medium rounded-lg border-0 ${DELIB.colors[s.delib_etat || 'PAS_ENCORE']}`}>
-              {Object.entries(DELIB.options).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-            </select>
-            {['PREVUE', 'TERMINEE'].includes(s.delib_etat) && (
-              <input type="date" value={s.date_deliberation || ''} onChange={e => update(s.id, { date_deliberation: e.target.value })} className="!py-1 !text-xs !w-auto ml-auto" />
-            )}
-          </>
+          <ControleDelib s={s} update={update} />
         ) : (
           <span className={`badge ${DELIB.colors[s.delib_etat || 'PAS_ENCORE']}`}>
             {DELIB.options[s.delib_etat || 'PAS_ENCORE']}{s.date_deliberation && s.delib_etat !== 'PAS_ENCORE' ? ` ${s.date_deliberation}` : ''}
@@ -725,6 +725,37 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
   );
 }
 
+/* Délibération (Responsable pédagogique) : Pas encore / Prévue le (date) / Effective.
+   L'état et la date sont appliqués ENSEMBLE au clic sur « Valider » —
+   « Effective » clôture l'évaluation (comptée dans les délibérations faites). */
+function ControleDelib({ s, update }) {
+  const [etat, setEtat] = useState(s.delib_etat || 'PAS_ENCORE');
+  const [date, setDate] = useState(s.date_deliberation || new Date().toISOString().slice(0, 10));
+  const [loading, setLoading] = useState(false);
+  const modifie = etat !== (s.delib_etat || 'PAS_ENCORE') || (['PREVUE', 'TERMINEE'].includes(etat) && date !== (s.date_deliberation || ''));
+  return (
+    <>
+      <select value={etat} onChange={e => setEtat(e.target.value)}
+        className={`!py-1 !text-xs !w-auto font-medium rounded-lg border-0 ${DELIB.colors[etat]}`}>
+        {Object.entries(DELIB.options).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+      </select>
+      {['PREVUE', 'TERMINEE'].includes(etat) && (
+        <input type="date" value={date} onChange={e => setDate(e.target.value)} className="!py-1 !text-xs !w-auto" />
+      )}
+      <button disabled={!modifie || loading || (['PREVUE', 'TERMINEE'].includes(etat) && !date)}
+        onClick={async () => {
+          if (etat === 'TERMINEE' && !confirm('Délibération EFFECTIVE : l\'évaluation sera clôturée (comptée dans les délibérations) et ne sera plus modifiable, sauf par le Directeur DFIP. Confirmer ?')) return;
+          setLoading(true);
+          await update(s.id, { delib_etat: etat, date_deliberation: ['PREVUE', 'TERMINEE'].includes(etat) ? date : null });
+          setLoading(false);
+        }}
+        className="btn-primary !py-1 !px-3 !text-xs !bg-purple-600 hover:!bg-purple-700 disabled:opacity-40 ml-auto">
+        {loading ? '...' : 'Valider'}
+      </button>
+    </>
+  );
+}
+
 function LigneSelect({ label, cfg, value, editable, onChange }) {
   return (
     <div className="flex items-center gap-2">
@@ -744,7 +775,7 @@ function ModalTerminer({ s, onClose, onConfirm }) {
   const [loading, setLoading] = useState(false);
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
         <div className="p-5 border-b">
           <h2 className="font-semibold text-slate-800">✔ Marquer l'évaluation comme terminée</h2>
           <p className="text-xs text-slate-500 mt-1">
@@ -781,7 +812,7 @@ function ModalMotif({ data, onClose, onConfirm }) {
   const estAnnulation = data.action === 'ANNULATION';
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
         <div className="p-5 border-b">
           <h2 className="font-semibold text-slate-800">{estAnnulation ? "Annuler l'évaluation" : "Reporter l'évaluation"}</h2>
           <p className="text-xs text-slate-500 mt-1">
@@ -815,7 +846,7 @@ function ModalDelib({ count, onClose, onConfirm }) {
   const [loading, setLoading] = useState(false);
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
         <div className="p-5 border-b">
           <h2 className="font-semibold text-slate-800 flex items-center gap-2"><Gavel size={17} className="text-purple-600" /> Délibérations — {count} formation(s)</h2>
         </div>

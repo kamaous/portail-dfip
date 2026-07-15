@@ -33,7 +33,7 @@ export function BoutonSignaler({ cibleType, cibleId, contexte }) {
       </button>
       {open && (
         <div className="fixed inset-0 bg-black/40 z-[70] flex items-center justify-center p-4" onClick={() => setOpen(false)}>
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll" onClick={e => e.stopPropagation()}>
             <div className="p-5 border-b">
               <h2 className="font-semibold text-slate-800 flex items-center gap-2">
                 <Flag size={17} className="text-amber-500" /> Signaler une non-conformité
