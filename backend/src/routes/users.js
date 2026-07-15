@@ -87,18 +87,48 @@ router.post('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => 
   }
 });
 
-// PUT /api/users/:id — modifier un utilisateur
+// PUT /api/users/:id — modifier un utilisateur (TOUS les champs, email et mot de passe inclus)
 router.put('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  const { nom, prenom, role, pole_id, service, actif } = req.body;
+  const { nom, prenom, email, role, pole_id, service, actif, password } = req.body;
   const db = getDb();
 
-  db.prepare(`
-    UPDATE users SET nom=?, prenom=?, role=?, pole_id=?, service=?, actif=?, updated_at=datetime('now')
-    WHERE id=?
-  `).run(nom, prenom || '', role, pole_id || null, service || null, actif !== undefined ? actif : 1, req.params.id);
+  const prev = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!prev) return res.status(404).json({ error: 'Utilisateur introuvable' });
 
+  // Email modifiable : normalisé + unicité contrôlée
+  const nouvelEmail = (email || prev.email).toLowerCase().trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(nouvelEmail)) {
+    return res.status(400).json({ error: 'Adresse email invalide' });
+  }
+  if (nouvelEmail !== prev.email &&
+      db.prepare('SELECT id FROM users WHERE email = ? AND id != ?').get(nouvelEmail, req.params.id)) {
+    return res.status(409).json({ error: 'Cet email est déjà utilisé par un autre compte' });
+  }
+
+  // Mot de passe optionnel : s'il est fourni, il est définitif (choisi par l'admin)
+  const mdp = (password || '').trim();
+  if (mdp && mdp.length < 6) {
+    return res.status(400).json({ error: 'Mot de passe trop court (6 caractères minimum)' });
+  }
+
+  db.prepare(`
+    UPDATE users SET nom=?, prenom=?, email=?, role=?, pole_id=?, service=?, actif=?, updated_at=datetime('now')
+    WHERE id=?
+  `).run(nom ?? prev.nom, prenom ?? prev.prenom ?? '', nouvelEmail, role || prev.role,
+    pole_id || null, service || null, actif !== undefined ? actif : 1, req.params.id);
+
+  if (mdp) {
+    db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?")
+      .run(bcrypt.hashSync(mdp, 10), req.params.id);
+  }
+
+  const changements = [
+    nouvelEmail !== prev.email && `email ${prev.email} → ${nouvelEmail}`,
+    (role && role !== prev.role) && `rôle ${prev.role} → ${role}`,
+    mdp && 'mot de passe modifié',
+  ].filter(Boolean).join(', ');
   db.prepare(`INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)`)
-    .run(req.user.id, 'UPDATE_USER', 'USERS', `id=${req.params.id}`);
+    .run(req.user.id, 'UPDATE_USER', 'USERS', `id=${req.params.id}${changements ? ` (${changements})` : ''}`);
 
   res.json({ message: 'Utilisateur mis à jour' });
 });

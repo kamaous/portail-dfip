@@ -37,7 +37,8 @@ const ROLE_COLORS = {
 function ModalUser({ poles, user: editUser, onClose, onSaved }) {
   const [form, setForm] = useState(editUser ? {
     nom: editUser.nom, prenom: editUser.prenom || '', email: editUser.email,
-    role: editUser.role, pole_id: editUser.pole_id || '', service: editUser.service || '', actif: editUser.actif
+    role: editUser.role, pole_id: editUser.pole_id || '', service: editUser.service || '',
+    actif: editUser.actif, password: ''
   } : { nom: '', prenom: '', email: '', role: 'MEMBRE_POLE', pole_id: '', service: '', password: '' });
   const [loading, setLoading] = useState(false);
 
@@ -81,14 +82,18 @@ function ModalUser({ poles, user: editUser, onClose, onSaved }) {
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Email *</label>
-            <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required disabled={!!editUser} />
+            <input type="email" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} required />
           </div>
-          {!editUser && (
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Mot de passe (laissez vide pour auto)</label>
-              <input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))} placeholder="Auto-généré si vide" />
-            </div>
-          )}
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">
+              {editUser ? 'Nouveau mot de passe (laissez vide pour ne pas changer)' : 'Mot de passe (laissez vide pour auto)'}
+            </label>
+            <input type="text" value={form.password} onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+              placeholder={editUser ? 'Inchangé si vide' : 'Auto-généré si vide'} />
+            {editUser && form.password && (
+              <p className="text-xs text-amber-600 mt-1">⚠️ Ce mot de passe remplacera l'actuel et sera définitif.</p>
+            )}
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Rôle *</label>
