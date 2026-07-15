@@ -783,11 +783,12 @@ export default function Tutorat() {
                   const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
                   const debut = t.date_debut || t.date_demarree_le;
                   const fin = t.date_fin || t.date_terminee_le;
+                  // Format : Promotion - Formation Niveau Semestre (ex : P10 - ANG L3 S5)
                   return {
                     debut, fin,
                     color: ETAT_BAR[t.etat_tutorat] || seg.color,
-                    label: `${t.formation_code || t.formation_nom || t.pole_code} · ${t.promotion_code || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
-                    titre: `${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
+                    label: `${t.promotion_code || '?'} - ${t.formation_code || t.formation_nom || t.pole_code} ${t.niveau || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
+                    titre: `Promotion ${t.promotion_code || '?'} — ${t.formation_nom || 'Formation non précisée'} ${NIVEAUX[t.niveau]?.label || ''} Semestre ${(t.semestre_code || '').replace('S', '')} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
                     onClick: () => setDetailId(t.id),
                   };
                 }),
@@ -807,7 +808,7 @@ export default function Tutorat() {
                       title={`${t.formation_nom || 'Formation non précisée'} — dates non renseignées (cliquer pour la fiche)`}
                       className="px-2.5 py-1 rounded-lg border-2 border-dashed bg-white font-semibold hover:bg-slate-50"
                       style={{ color: seg.color, borderColor: `${seg.color}66` }}>
-                      {t.formation_code || t.formation_nom || t.pole_code} · {t.promotion_code || '?'} {t.semestre_code || ''}
+                      {t.promotion_code || '?'} - {t.formation_code || t.formation_nom || t.pole_code} {t.niveau || ''} {t.semestre_code || ''}
                     </button>
                   );
                 })}

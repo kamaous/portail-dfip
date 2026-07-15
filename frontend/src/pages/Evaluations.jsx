@@ -7,6 +7,7 @@ import { SelecteurCursus, NIVEAUX, CalendrierMois } from './Tutorat';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
+export const SESSION_CODE = { 1: 'SN', 2: 'SR', 3: 'SS' }; // Normale / Rattrapage / Spéciale
 const TYPE_EVAL = {
   EVALUATION: { label: 'Évaluation', color: 'bg-blue-100 text-blue-700' },
   DEVOIR: { label: 'Devoir', color: 'bg-cyan-100 text-cyan-700' },
@@ -418,11 +419,12 @@ export default function Evaluations() {
               ...affiches.filter(s => s.date_demarrage).map(s => {
                 const seg = POLES_SEG[s.pole_code] || POLES_SEG.STN;
                 const fin = s.date_fin_prevue || s.date_demarrage;
+                // Format : Promotion - Formation Niveau Semestre Session (ex : P10 - ANG L3 S5 SN)
                 return {
                   debut: s.date_demarrage, fin,
                   color: s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color),
-                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${s.formation_code || s.formation_nom || s.pole_code} · S${s.session_num} ${s.promotion_code || ''} ${s.semestre_code || ''}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
-                  titre: `${s.formation_nom || 'Formation non précisée'} — ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
+                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${s.promotion_code || '?'} - ${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
+                  titre: `Promotion ${s.promotion_code || '?'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
                   onClick: () => setDetailId(s.id),
                 };
               }),
@@ -442,7 +444,7 @@ export default function Evaluations() {
                       title={`${s.formation_nom || 'Formation non précisée'} — date de démarrage non renseignée (cliquer pour les détails)`}
                       className="px-2.5 py-1 rounded-lg border-2 border-dashed bg-white font-semibold hover:bg-slate-50"
                       style={{ color: seg.color, borderColor: `${seg.color}66` }}>
-                      {s.formation_code || s.formation_nom || s.pole_code} · S{s.session_num} {s.promotion_code || '?'} {s.semestre_code || ''}
+                      {s.promotion_code || '?'} - {s.formation_code || s.formation_nom || s.pole_code} {s.niveau || ''} {s.semestre_code || ''} {SESSION_CODE[s.session_num]}
                     </button>
                   );
                 })}
@@ -459,7 +461,7 @@ export default function Evaluations() {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#16a34a' }} /> Terminées</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#dc2626' }} /> Annulée</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border-2 border-dashed border-slate-400 bg-white" /> Plage du Planning annuel</span>
-          <span>📝 = devoir · S1/S2/S3 = session · ⚖ = délibéré · Cliquez sur une bande pour les détails.</span>
+          <span>📝 = devoir · SN/SR/SS = session Normale/Rattrapage/Spéciale · ⚖ = délibéré · Cliquez sur une bande pour les détails.</span>
         </div>
       )}
 
