@@ -3,8 +3,8 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, ClipboardCheck, Trash2, Calendar, Gavel, LayoutGrid, GanttChartSquare, List, CheckSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { SelecteurCursus, NIVEAUX } from './Tutorat';
-import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
+import { SelecteurCursus, NIVEAUX, hauteurTl, AxeTempsV, FondGrilleV, OverlaysV, PlageV } from './Tutorat';
+import { useTimeline, ZoomBar } from './PlanningAnnuel';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
@@ -378,113 +378,114 @@ export default function Evaluations() {
           </div>
         </>
       ) : (
-        /* ===== Vue PLANNING ===== */
+        /* ===== Vue PLANNING transposée : colonnes = Pôles / Niveaux, dates à la VERTICALE ===== */
         <div className="card !p-0 overflow-x-auto nav-scroll">
-          <div className="min-w-[1100px]">
-            <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
-              <div className="w-64 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
-                Pôles / Niveaux
-              </div>
-              <EnTeteUnites tl={tl} />
-            </div>
-            <BandeauVacances vacances={vacances} feries={feriesRange} tl={tl} />
-            {poles.filter(p => !segment || p.code === segment).map(pole => {
-              const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
-              const sessPole = affiches.filter(s => s.pole_code === pole.code);
-              const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
-              // Une ligne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
-              // reste visible au survol de la barre et dans le détail de l'évaluation.
-              // Les plages du Planning annuel se superposent aux barres de leur niveau.
-              const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
-              const rows = [
-                ...Object.keys(NIVEAUX)
-                  .filter(n => sessPole.some(s => s.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
-                  .map(n => ({
-                    key: n, label: NIVEAUX[n].label,
-                    sess: sessPole.filter(s => s.niveau === n),
-                    plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
-                  })),
-                ...(sessPole.some(s => !NIVEAUX[s.niveau])
-                  ? [{ key: 'AUTRE', label: '(niveau non précisé)', sess: sessPole.filter(s => !NIVEAUX[s.niveau]), plages: [] }]
-                  : []),
-                // Plages du planning dont la ligne n'est pas un niveau standard : piste dédiée
-                ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
-                  .map(lg => ({ key: `P:${lg}`, label: lg, sess: [], plages: plagesPole.filter(p => p.ligne === lg) })),
-              ];
-              const focus = segment === pole.code;
-              return (
-                <div key={pole.code} className="border-b border-slate-100 last:border-0">
-                  <div className={`flex items-center gap-2 px-3 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
-                    <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{pole.nom}</span>
-                    <span className="text-xs text-slate-400 ml-auto">{sessPole.length} évaluation(s)</span>
+          {(() => {
+            const H = hauteurTl(tl);
+            const polesAff = poles.filter(p => !segment || p.code === segment);
+            return (
+              <div className="flex min-w-fit">
+                {/* Axe du temps (colonne de gauche, figée) */}
+                <div className="shrink-0 sticky left-0 bg-white z-30 border-r border-slate-200">
+                  <div className="h-[76px] border-b border-slate-200 flex items-end justify-center pb-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                    Dates
                   </div>
-
-                  {rows.length === 0 && <p className="text-xs text-slate-400 italic px-3 py-2">Aucune évaluation saisie ni plage du Planning annuel</p>}
-                  {rows.map(({ key, label: nivLabel, sess, plages }) => {
-                    return (
-                      <div key={key} className="flex border-t border-slate-50">
-                        <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`}>
-                          <span className="line-clamp-2" title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
-                        </div>
-                        <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
-                          <FondGrille tl={tl} />
-                          <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
-                          {/* Plages du Planning annuel : ligne de tirets •――― ―――• superposée aux barres */}
-                          {plages.map((p, i) => {
-                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
-                            if (rr <= 0 || lr >= 100) return null;
-                            const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
-                            return (
-                              <div key={`pl${i}`}
-                                title={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`}
-                                className="absolute inset-y-0 cursor-help"
-                                style={{ left: `${l}%`, width: `${w}%` }}>
-                                <div className="absolute left-1 right-1 top-1/2 -translate-y-1/2 border-t-2 border-dashed"
-                                  style={{ borderColor: seg.color }} />
-                              </div>
-                            );
-                          })}
-                          {sess.map(s => {
-                            const debut = s.date_demarrage, fin = s.date_fin_prevue || s.date_demarrage;
-                            if (!debut) return null;
-                            const lr = tl.pctRaw(debut), rr = tl.pctRaw(fin);
-                            if (rr <= 0 || lr >= 100) return null;
-                            const l = Math.max(0, lr);
-                            const w = Math.max(Math.min(100, rr) - l, tl.mode === 'MOIS' ? 2.5 : 1.2);
-                            const bg = s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color);
-                            return (
-                              <div key={s.id} onClick={() => setDetailId(s.id)}
-                                title={`${s.formation_nom || 'Formation non précisée'} — ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${debut} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''}`}
-                                className={`absolute z-10 rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'} ${s.session_num > 1 ? 'border-2 border-white/70 border-dashed' : ''}`}
-                                style={{ left: `${l}%`, width: `${w}%`, background: bg }}>
-                                <span className="truncate">{s.type_evaluation === 'DEVOIR' ? '📝' : ''} S{s.session_num} {s.promotion_code || ''} {s.semestre_code || ''}{s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}</span>
-                              </div>
-                            );
-                          })}
-                          {/* Points de début/fin + intitulé centré, lisibles PAR-DESSUS les barres */}
-                          {plages.map((p, i) => {
-                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
-                            if (rr <= 0 || lr >= 100) return null;
-                            const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
-                            return (
-                              <div key={`pt${i}`} className="absolute inset-y-0 z-20 pointer-events-none" style={{ left: `${l}%`, width: `${w}%` }}>
-                                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: seg.color }} />
-                                <span className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: seg.color }} />
-                                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[9px] font-bold px-1.5 py-px rounded-md bg-white/95 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[calc(100%-18px)]"
-                                  style={{ color: seg.color }}>
-                                  {p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} {p.libelle} · {p.ligne}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <AxeTempsV tl={tl} h={H} />
                 </div>
-              );
-            })}
-          </div>
+
+                {polesAff.map(pole => {
+                  const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
+                  const sessPole = affiches.filter(s => s.pole_code === pole.code);
+                  const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
+                  // Une colonne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
+                  // reste visible au survol de la barre et dans le détail de l'évaluation.
+                  const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
+                  const rows = [
+                    ...Object.keys(NIVEAUX)
+                      .filter(n => sessPole.some(s => s.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
+                      .map(n => ({
+                        key: n, label: NIVEAUX[n].label,
+                        sess: sessPole.filter(s => s.niveau === n),
+                        plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
+                      })),
+                    ...(sessPole.some(s => !NIVEAUX[s.niveau])
+                      ? [{ key: 'AUTRE', label: '(niveau non précisé)', sess: sessPole.filter(s => !NIVEAUX[s.niveau]), plages: [] }]
+                      : []),
+                    // Plages du planning dont la ligne n'est pas un niveau standard : colonne dédiée
+                    ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
+                      .map(lg => ({ key: `P:${lg}`, label: lg, sess: [], plages: plagesPole.filter(p => p.ligne === lg) })),
+                  ];
+                  const focus = segment === pole.code;
+                  const colW = focus ? 'w-52' : 'w-36';
+                  return (
+                    <div key={pole.code} className="border-r border-slate-200 last:border-r-0">
+                      {/* Bandeau du pôle (couvre ses colonnes de niveaux) */}
+                      <div className="h-9 flex items-center justify-center gap-2 px-3 border-b border-slate-100" style={{ background: seg.light }} title={pole.nom}>
+                        <span className="font-bold text-sm" style={{ color: seg.color }}>{focus ? pole.nom : pole.code}</span>
+                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{sessPole.length} évaluation(s)</span>
+                      </div>
+                      <div className="flex">
+                        {rows.length === 0 && (
+                          <div className={colW}>
+                            <div className="h-10 border-b border-slate-100" />
+                            <div className="relative" style={{ height: H }}>
+                              <FondGrilleV tl={tl} />
+                              <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
+                              <p className="absolute top-3 inset-x-1 text-center text-[10px] text-slate-300 italic">Aucune évaluation</p>
+                            </div>
+                          </div>
+                        )}
+                        {rows.map(({ key, label: nivLabel, sess, plages }) => {
+                          const datees = sess.filter(s => s.date_demarrage);
+                          const lanes = datees.length > 1 ? 2 : 1; // 2 couloirs si plusieurs barres datées
+                          return (
+                            <div key={key} className={`${colW} border-l border-slate-100 first:border-l-0`}>
+                              <div className="h-10 border-b border-slate-100 flex items-center justify-center px-1">
+                                <span className="text-xs font-medium text-slate-600 text-center leading-tight line-clamp-2"
+                                  title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
+                              </div>
+                              <div className="relative" style={{ height: H }}>
+                                <FondGrilleV tl={tl} />
+                                <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
+                                {plages.map((p, i) => (
+                                  <PlageV key={`pl${i}`} p={p} tl={tl} color={seg.color}
+                                    label={`${p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} ${p.libelle}`}
+                                    titre={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`} />
+                                ))}
+                                {sess.map(s => {
+                                  const debut = s.date_demarrage, fin = s.date_fin_prevue || s.date_demarrage;
+                                  if (!debut) return null;
+                                  const t0 = tl.pctRaw(debut), b0 = tl.pctRaw(fin);
+                                  if (b0 <= 0 || t0 >= 100) return null;
+                                  const top = Math.max(0, t0);
+                                  const hh = Math.max(Math.min(100, b0) - top, tl.mode === 'MOIS' ? 2.5 : 1.5);
+                                  const bg = s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color);
+                                  const lane = lanes > 1 ? datees.indexOf(s) % 2 : 0;
+                                  return (
+                                    <div key={s.id} onClick={() => setDetailId(s.id)}
+                                      title={`${s.formation_nom || 'Formation non précisée'} — ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${debut} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''}`}
+                                      className={`absolute z-10 rounded-md font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${s.session_num > 1 ? 'border-2 border-white/70 border-dashed' : ''}`}
+                                      style={{
+                                        top: `${top}%`, height: `${hh}%`, background: bg,
+                                        left: lanes > 1 ? (lane === 0 ? '4%' : '51%') : '5%',
+                                        right: lanes > 1 ? (lane === 0 ? '51%' : '4%') : '5%',
+                                      }}>
+                                      <span className="block truncate text-[9px] px-1 pt-0.5">{s.type_evaluation === 'DEVOIR' ? '📝' : ''} S{s.session_num} {s.promotion_code || ''} {s.semestre_code || ''}{s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}</span>
+                                      <span className="block truncate text-[8px] px-1 opacity-85">{ETAT_EVAL.options[s.etat_eval]}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 

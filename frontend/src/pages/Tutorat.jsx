@@ -75,6 +75,82 @@ export const NIVEAUX = {
   M2: { label: 'Master 2', cycle: 'MASTER', semestres: ['S3'] },
 };
 
+/* ===== Rendu VERTICAL du planning (le temps s'écoule de haut en bas) =====
+   Transposition de la vue Gantt : colonnes = Pôles / Niveaux, axe vertical = dates.
+   Partagé entre les modules Tutorat et Évaluations. */
+export const hauteurTl = (tl) => tl.mode === 'MOIS' ? tl.units.length * 26 : 780;
+
+export function AxeTempsV({ tl, h }) {
+  return (
+    <div className="relative w-16" style={{ height: h }}>
+      {tl.units.map((u, i) => (
+        <div key={i}
+          className={`absolute inset-x-0 border-t border-slate-100 px-1.5 pt-0.5 text-[10px] font-medium ${u.weekend ? 'bg-slate-100/80 text-slate-400' : 'text-slate-500'}`}
+          style={{ top: `${u.left}%`, height: `${u.width}%` }}>
+          {u.sub ? <span className="text-slate-400">{u.sub} <strong className="text-slate-600">{u.label}</strong></span> : u.label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function FondGrilleV({ tl }) {
+  return (
+    <>
+      {tl.units.map((u, i) => u.weekend ? (
+        <div key={`w${i}`} className="absolute inset-x-0 bg-slate-100/70 pointer-events-none" style={{ top: `${u.left}%`, height: `${u.width}%` }} />
+      ) : null)}
+      {tl.units.map((u, i) => (
+        <div key={`l${i}`} className="absolute inset-x-0 border-t border-slate-50 pointer-events-none" style={{ top: `${u.left}%` }} />
+      ))}
+    </>
+  );
+}
+
+export function OverlaysV({ vacances, feries, tl }) {
+  return (
+    <>
+      {vacances.map((v, i) => {
+        const t0 = tl.pctRaw(v.date_debut), b0 = tl.pctRaw(v.date_fin);
+        if (b0 <= 0 || t0 >= 100) return null;
+        const top = Math.max(0, t0), hh = Math.min(100, b0) - top;
+        return (
+          <div key={`v${i}`} title={`${v.libelle} : ${v.date_debut} → ${v.date_fin}`}
+            className="absolute inset-x-0 border-y border-red-200 pointer-events-none"
+            style={{ top: `${top}%`, height: `${hh}%`, backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 6px, rgba(239,68,68,0.14) 6px, rgba(239,68,68,0.14) 12px)' }} />
+        );
+      })}
+      {feries.map((f, i) => {
+        const t0 = tl.pct(f.date);
+        if (t0 <= 0 || t0 >= 100) return null;
+        return <div key={`f${i}`} title={`${f.libelle} (${f.date})`} className="absolute inset-x-0 border-t-2 border-red-500/70 pointer-events-none" style={{ top: `${t0}%` }} />;
+      })}
+    </>
+  );
+}
+
+/* Plage du Planning annuel en vertical : ligne de tirets •¦¦¦• avec un point
+   à chaque extrémité et l'intitulé centré, lisible par-dessus les barres */
+export function PlageV({ p, tl, color, label, titre }) {
+  const t0 = tl.pctRaw(p.date_debut), b0 = tl.pctRaw(p.date_fin);
+  if (b0 <= 0 || t0 >= 100) return null;
+  const top = Math.max(0, t0), hh = Math.max(Math.min(100, b0) - top, 1);
+  return (
+    <>
+      <div title={titre} className="absolute inset-x-0 cursor-help" style={{ top: `${top}%`, height: `${hh}%` }}>
+        <div className="absolute top-1 bottom-1 left-1/2 -translate-x-1/2 border-l-2 border-dashed" style={{ borderColor: color }} />
+      </div>
+      <div className="absolute inset-x-0 z-20 pointer-events-none" style={{ top: `${top}%`, height: `${hh}%` }}>
+        <span className="absolute top-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: color }} />
+        <span className="absolute bottom-0 left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: color }} />
+        <span className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-[9px] font-bold px-1.5 py-px rounded-md bg-white/95 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[calc(100%-4px)]" style={{ color }}>
+          {label}
+        </span>
+      </div>
+    </>
+  );
+}
+
 /* « Tout est OK » = valeurs cibles des 5 indicateurs PLATEFORMES ET TUTORATS */
 export const OK_CIBLES = {
   plateforme_cours: 'DISPONIBLE',
@@ -620,129 +696,124 @@ export default function Tutorat() {
           </div>
         </>
       ) : (
-        /* ===== Vue PLANNING : pôle → formations → barres de tutorat ===== */
+        /* ===== Vue PLANNING transposée : colonnes = Pôles / Niveaux, dates à la VERTICALE ===== */
         <div className="card !p-0 overflow-x-auto nav-scroll">
-          <div className="min-w-[1100px]">
-            {/* En-tête des mois */}
-            <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
-              <div className="w-64 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
-                Pôles / Niveaux
-              </div>
-              <EnTeteUnites tl={tl} />
-            </div>
-
-            <BandeauVacances vacances={vacances} feries={feriesRange} tl={tl} />
-
-            {poles.filter(p => !segment || p.code === segment).map(pole => {
-              const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
-              const fichesPole = tutoratsAffiches.filter(t => t.pole_code === pole.code);
-              const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
-              // Une ligne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
-              // reste visible au survol de la barre et dans le détail de la fiche.
-              // Les plages du Planning annuel se superposent aux barres de leur niveau.
-              const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
-              const rows = [
-                ...Object.keys(NIVEAUX)
-                  .filter(n => fichesPole.some(t => t.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
-                  .map(n => ({
-                    key: n, label: NIVEAUX[n].label,
-                    fiches: fichesPole.filter(t => t.niveau === n),
-                    plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
-                  })),
-                ...(fichesPole.some(t => !NIVEAUX[t.niveau])
-                  ? [{ key: 'AUTRE', label: '(niveau non précisé)', fiches: fichesPole.filter(t => !NIVEAUX[t.niveau]), plages: [] }]
-                  : []),
-                // Plages du planning dont la ligne n'est pas un niveau standard : piste dédiée
-                ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
-                  .map(lg => ({ key: `P:${lg}`, label: lg, fiches: [], plages: plagesPole.filter(p => p.ligne === lg) })),
-              ];
-              const focus = segment === pole.code;
-              return (
-                <div key={pole.code} className="border-b border-slate-100 last:border-0">
-                  <div className={`flex items-center gap-2 px-3 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
-                    <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{pole.nom}</span>
-                    <span className="text-xs text-slate-400 ml-auto">{fichesPole.length} fiche(s)</span>
+          {(() => {
+            const H = hauteurTl(tl);
+            const polesAff = poles.filter(p => !segment || p.code === segment);
+            return (
+              <div className="flex min-w-fit">
+                {/* Axe du temps (colonne de gauche, figée) */}
+                <div className="shrink-0 sticky left-0 bg-white z-30 border-r border-slate-200">
+                  <div className="h-[76px] border-b border-slate-200 flex items-end justify-center pb-1.5 px-2 text-[10px] font-semibold text-slate-400 uppercase tracking-wide">
+                    Dates
                   </div>
-
-                  {rows.length === 0 && (
-                    <p className="text-xs text-slate-400 italic px-3 py-2">Aucune fiche de suivi ni plage du Planning annuel</p>
-                  )}
-                  {rows.map(({ key, label: nivLabel, fiches, plages }) => {
-                    return (
-                      <div key={key} className="flex border-t border-slate-50">
-                        <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`}>
-                          <span className="line-clamp-2" title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
-                        </div>
-                        <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
-                          <FondGrille tl={tl} />
-                          <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
-                          {/* Plages du Planning annuel : ligne de tirets •――― ―――• superposée aux barres */}
-                          {plages.map((p, i) => {
-                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
-                            if (rr <= 0 || lr >= 100) return null;
-                            const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
-                            return (
-                              <div key={`pl${i}`}
-                                title={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`}
-                                className="absolute inset-y-0 cursor-help"
-                                style={{ left: `${l}%`, width: `${w}%` }}>
-                                <div className="absolute left-1 right-1 top-1/2 -translate-y-1/2 border-t-2 border-dashed"
-                                  style={{ borderColor: seg.color }} />
-                              </div>
-                            );
-                          })}
-                          {fiches.map((t, idx) => {
-                            const debut = t.date_debut || t.date_demarree_le;
-                            const fin = t.date_fin || t.date_terminee_le;
-                            if ((debut && fin) && (tl.pctRaw(fin) <= 0 || tl.pctRaw(debut) >= 100)) return null; // hors fenêtre
-                            if (!debut || !fin) {
-                              if (tl.mode === 'MOIS') return null; // pastilles « sans dates » seulement en vue année
-                              // Fiche sans dates : pastille cliquable en début de piste
-                              return (
-                                <button key={t.id} onClick={() => setDetailId(t.id)}
-                                  title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.semestre_code || ''} — dates non renseignées (cliquer pour détails)`}
-                                  className="absolute z-10 top-1 bottom-1 rounded-md border-2 border-dashed px-1.5 text-[10px] font-semibold flex items-center"
-                                  style={{ left: `${1 + idx * 8}%`, color: seg.color, borderColor: `${seg.color}66`, background: '#fff' }}>
-                                  {t.promotion_code || '?'} {t.semestre_code || ''} · sans dates
-                                </button>
-                              );
-                            }
-                            const l = tl.pct(debut), r = tl.pct(fin);
-                            const w = Math.max(r - l, tl.mode === 'MOIS' ? 2.5 : 1);
-                            const bg = ETAT_BAR[t.etat_tutorat] || seg.color;
-                            return (
-                              <div key={t.id} onClick={() => setDetailId(t.id)}
-                                title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} (cliquer pour détails)`}
-                                className={`absolute z-10 rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
-                                style={{ left: `${l}%`, width: `${w}%`, background: bg }}>
-                                <span className="truncate">{t.promotion_code || ''} {t.semestre_code || ''} · {ETATS.etat_tutorat.options[t.etat_tutorat]}</span>
-                              </div>
-                            );
-                          })}
-                          {/* Points de début/fin + intitulé centré, lisibles PAR-DESSUS les barres */}
-                          {plages.map((p, i) => {
-                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
-                            if (rr <= 0 || lr >= 100) return null;
-                            const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
-                            return (
-                              <div key={`pt${i}`} className="absolute inset-y-0 z-20 pointer-events-none" style={{ left: `${l}%`, width: `${w}%` }}>
-                                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: seg.color }} />
-                                <span className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: seg.color }} />
-                                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[9px] font-bold px-1.5 py-px rounded-md bg-white/95 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[calc(100%-18px)]"
-                                  style={{ color: seg.color }}>
-                                  📚 {p.libelle} · {p.ligne}
-                                </span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  <AxeTempsV tl={tl} h={H} />
                 </div>
-              );
-            })}
-          </div>
+
+                {polesAff.map(pole => {
+                  const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
+                  const fichesPole = tutoratsAffiches.filter(t => t.pole_code === pole.code);
+                  const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
+                  // Une colonne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
+                  // reste visible au survol de la barre et dans le détail de la fiche.
+                  const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
+                  const rows = [
+                    ...Object.keys(NIVEAUX)
+                      .filter(n => fichesPole.some(t => t.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
+                      .map(n => ({
+                        key: n, label: NIVEAUX[n].label,
+                        fiches: fichesPole.filter(t => t.niveau === n),
+                        plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
+                      })),
+                    ...(fichesPole.some(t => !NIVEAUX[t.niveau])
+                      ? [{ key: 'AUTRE', label: '(niveau non précisé)', fiches: fichesPole.filter(t => !NIVEAUX[t.niveau]), plages: [] }]
+                      : []),
+                    // Plages du planning dont la ligne n'est pas un niveau standard : colonne dédiée
+                    ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
+                      .map(lg => ({ key: `P:${lg}`, label: lg, fiches: [], plages: plagesPole.filter(p => p.ligne === lg) })),
+                  ];
+                  const focus = segment === pole.code;
+                  const colW = focus ? 'w-52' : 'w-36';
+                  return (
+                    <div key={pole.code} className="border-r border-slate-200 last:border-r-0">
+                      {/* Bandeau du pôle (couvre ses colonnes de niveaux) */}
+                      <div className="h-9 flex items-center justify-center gap-2 px-3 border-b border-slate-100" style={{ background: seg.light }} title={pole.nom}>
+                        <span className="font-bold text-sm" style={{ color: seg.color }}>{focus ? pole.nom : pole.code}</span>
+                        <span className="text-[10px] text-slate-400 whitespace-nowrap">{fichesPole.length} fiche(s)</span>
+                      </div>
+                      <div className="flex">
+                        {rows.length === 0 && (
+                          <div className={colW}>
+                            <div className="h-10 border-b border-slate-100" />
+                            <div className="relative" style={{ height: H }}>
+                              <FondGrilleV tl={tl} />
+                              <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
+                              <p className="absolute top-3 inset-x-1 text-center text-[10px] text-slate-300 italic">Aucune fiche</p>
+                            </div>
+                          </div>
+                        )}
+                        {rows.map(({ key, label: nivLabel, fiches, plages }) => {
+                          const datees = fiches.filter(t => (t.date_debut || t.date_demarree_le) && (t.date_fin || t.date_terminee_le));
+                          const lanes = datees.length > 1 ? 2 : 1; // 2 couloirs si plusieurs barres datées
+                          return (
+                            <div key={key} className={`${colW} border-l border-slate-100 first:border-l-0`}>
+                              <div className="h-10 border-b border-slate-100 flex items-center justify-center px-1">
+                                <span className="text-xs font-medium text-slate-600 text-center leading-tight line-clamp-2"
+                                  title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
+                              </div>
+                              <div className="relative" style={{ height: H }}>
+                                <FondGrilleV tl={tl} />
+                                <OverlaysV vacances={vacances} feries={feriesRange} tl={tl} />
+                                {plages.map((p, i) => (
+                                  <PlageV key={`pl${i}`} p={p} tl={tl} color={seg.color}
+                                    label={`📚 ${p.libelle}`}
+                                    titre={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`} />
+                                ))}
+                                {fiches.map((t, idx) => {
+                                  const debut = t.date_debut || t.date_demarree_le;
+                                  const fin = t.date_fin || t.date_terminee_le;
+                                  if ((debut && fin) && (tl.pctRaw(fin) <= 0 || tl.pctRaw(debut) >= 100)) return null; // hors fenêtre
+                                  if (!debut || !fin) {
+                                    if (tl.mode === 'MOIS') return null; // pastilles « sans dates » seulement en vue année
+                                    return (
+                                      <button key={t.id} onClick={() => setDetailId(t.id)}
+                                        title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.semestre_code || ''} — dates non renseignées (cliquer pour détails)`}
+                                        className="absolute z-10 left-1 right-1 rounded-md border-2 border-dashed px-1 py-0.5 text-[9px] font-semibold text-left truncate"
+                                        style={{ top: `${1 + idx * 4}%`, color: seg.color, borderColor: `${seg.color}66`, background: '#fff' }}>
+                                        {t.promotion_code || '?'} {t.semestre_code || ''} · sans dates
+                                      </button>
+                                    );
+                                  }
+                                  const top = tl.pct(debut), b = tl.pct(fin);
+                                  const hh = Math.max(b - top, tl.mode === 'MOIS' ? 2.5 : 1.5);
+                                  const bg = ETAT_BAR[t.etat_tutorat] || seg.color;
+                                  const lane = lanes > 1 ? datees.indexOf(t) % 2 : 0;
+                                  return (
+                                    <div key={t.id} onClick={() => setDetailId(t.id)}
+                                      title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} (cliquer pour détails)`}
+                                      className="absolute z-10 rounded-md font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60"
+                                      style={{
+                                        top: `${top}%`, height: `${hh}%`, background: bg,
+                                        left: lanes > 1 ? (lane === 0 ? '4%' : '51%') : '5%',
+                                        right: lanes > 1 ? (lane === 0 ? '51%' : '4%') : '5%',
+                                      }}>
+                                      <span className="block truncate text-[9px] px-1 pt-0.5">{t.promotion_code || ''} {t.semestre_code || ''}</span>
+                                      <span className="block truncate text-[8px] px-1 opacity-85">{ETATS.etat_tutorat.options[t.etat_tutorat]}</span>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
         </div>
       )}
 
