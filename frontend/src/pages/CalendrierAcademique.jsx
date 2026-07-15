@@ -3,6 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, Trash2, CalendarOff, Palmtree, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import PlageDates from '../components/PlageDates';
 
 export default function CalendrierAcademique() {
   const { user } = useAuth();
@@ -114,9 +115,10 @@ function VacancesPanel({ vacances, annees, isDirecteur, onReload, loading }) {
       {isDirecteur && (
         <form onSubmit={add} className="space-y-2 mb-4 bg-slate-50 p-3 rounded-xl">
           <input value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))} placeholder="Ex: Vacances de Noël" />
-          <div className="grid grid-cols-2 gap-2">
-            <div><label className="text-xs text-slate-500 block mb-1">Début</label><input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} /></div>
-            <div><label className="text-xs text-slate-500 block mb-1">Fin</label><input type="date" value={form.date_fin} onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))} /></div>
+          <div>
+            <label className="text-xs text-slate-500 block mb-1">Période (début → fin)</label>
+            <PlageDates compact debut={form.date_debut} fin={form.date_fin}
+              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_debut: debut, date_fin: fin }))} />
           </div>
           <select value={form.annee_id} onChange={e => setForm(f => ({ ...f, annee_id: e.target.value }))}>
             <option value="">Toutes les années</option>

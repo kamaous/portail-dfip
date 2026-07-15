@@ -3,6 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, GanttChartSquare, LayoutGrid } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import PlageDates from '../components/PlageDates';
 
 /* Les 5 segments institutionnels (couleurs alignées sur le fichier Excel) */
 const SEGMENTS = {
@@ -298,15 +299,10 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
               pas de nouvelle saisie : le suivi se fera directement sur l'entrée liée.
             </p>
           )}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Début *</label>
-              <input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Fin *</label>
-              <input type="date" value={form.date_fin} onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))} required />
-            </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Période de l'activité (début → fin) *</label>
+            <PlageDates debut={form.date_debut} fin={form.date_fin}
+              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_debut: debut, date_fin: fin }))} />
           </div>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
@@ -763,14 +759,11 @@ function ModalDetail({ activite: a, canEdit, estDirecteur, lignesMap = {}, onClo
                     <label className="text-xs font-medium text-slate-600 block mb-1">Libellé</label>
                     <input value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))} className="!py-1.5 !text-sm" />
                   </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600 block mb-1">Début</label>
-                    <input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} className="!py-1.5 !text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs font-medium text-slate-600 block mb-1">Fin</label>
-                    <input type="date" value={form.date_fin} onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))} className="!py-1.5 !text-sm" />
-                  </div>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-slate-600 block mb-1">Période (début → fin)</label>
+                  <PlageDates compact debut={form.date_debut} fin={form.date_fin}
+                    onChange={({ debut, fin }) => setForm(f => ({ ...f, date_debut: debut, date_fin: fin || debut }))} />
                 </div>
               </div>
               <div className="flex gap-2 pt-1">

@@ -5,6 +5,7 @@ import { Plus, ClipboardCheck, Trash2, Calendar, Gavel, LayoutGrid, GanttChartSq
 import { useAuth } from '../context/AuthContext';
 import { SelecteurCursus, NIVEAUX, CalendrierMois } from './Tutorat';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
+import PlageDates from '../components/PlageDates';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
 export const SESSION_CODE = { 1: 'SN', 2: 'SR', 3: 'SS' }; // Normale / Rattrapage / Spéciale
@@ -149,15 +150,10 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
             )
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date de démarrage *</label>
-              <input type="date" value={form.date_demarrage} onChange={e => setForm(f => ({ ...f, date_demarrage: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date de clôture *</label>
-              <input type="date" value={form.date_fin_prevue} onChange={e => setForm(f => ({ ...f, date_fin_prevue: e.target.value }))} required />
-            </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Période de l'évaluation (démarrage → clôture) *</label>
+            <PlageDates debut={form.date_demarrage} fin={form.date_fin_prevue}
+              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_demarrage: debut, date_fin_prevue: fin }))} />
           </div>
           {horsPlage && <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages autorisées — l'enregistrement sera refusé.</p>}
           {conflitsLive.length > 0 && (

@@ -5,6 +5,7 @@ import { Plus, BookOpen, Trash2, AlertTriangle, Calendar, LayoutGrid, GanttChart
 import { useAuth } from '../context/AuthContext';
 import { useMemo } from 'react';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
+import PlageDates from '../components/PlageDates';
 
 /* Configuration des champs d'état — vocabulaire officiel du fichier Tutorat UN-CHK */
 const ENROLEMENT = {
@@ -356,15 +357,10 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date début tutorat *</label>
-              <input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} required />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date fin tutorat *</label>
-              <input type="date" value={form.date_fin} onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))} required />
-            </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Période du tutorat (début → fin) *</label>
+            <PlageDates debut={form.date_debut} fin={form.date_fin}
+              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_debut: debut, date_fin: fin }))} />
           </div>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
@@ -513,10 +509,8 @@ function FicheCard({ t, onChange, onRetard, onDelete, onValider, onSaveEtat, onS
             ) : (
               <>
                 <p className="text-[11px] text-blue-700">⚠️ Vos modifications seront <strong>soumises à la validation du Chef de division Technopédagogie</strong>.</p>
-                <div className="grid grid-cols-2 gap-2">
-                  <input type="date" value={datesForm.date_debut} onChange={e => setDatesForm(d => ({ ...d, date_debut: e.target.value }))} className="!py-1 !text-xs" />
-                  <input type="date" value={datesForm.date_fin} onChange={e => setDatesForm(d => ({ ...d, date_fin: e.target.value }))} className="!py-1 !text-xs" />
-                </div>
+                <PlageDates compact debut={datesForm.date_debut} fin={datesForm.date_fin}
+                  onChange={({ debut, fin }) => setDatesForm({ date_debut: debut, date_fin: fin })} />
                 <div className="flex gap-2">
                   <button onClick={() => setEditionDates(false)} className="btn-secondary !py-1 text-xs flex-1">Annuler</button>
                   <button onClick={async () => { await onSaveDates(t, datesForm); setEditionDates(false); }}

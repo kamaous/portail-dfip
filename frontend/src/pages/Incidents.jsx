@@ -6,6 +6,7 @@ import { Plus, AlertTriangle, CheckCircle, MessageSquare, ChevronDown, LayoutGri
 import { formatDistanceToNow, format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
+import PlageDates from '../components/PlageDates';
 import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
 
 /* Segments = pôles + incidents généraux (sans pôle) */
@@ -118,15 +119,10 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
               </select>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date de début</label>
-              <input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value, date_incident: e.target.value }))} />
-            </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date de fin</label>
-              <input type="date" value={form.date_fin} onChange={e => setForm(f => ({ ...f, date_fin: e.target.value }))} />
-            </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Période de l'incident (début → fin)</label>
+            <PlageDates debut={form.date_debut} fin={form.date_fin}
+              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_debut: debut, date_incident: debut, date_fin: fin }))} />
           </div>
 
           <div className="bg-amber-50 border border-amber-100 rounded-xl p-3 space-y-3">
