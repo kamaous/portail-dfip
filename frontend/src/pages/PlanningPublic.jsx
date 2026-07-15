@@ -109,7 +109,7 @@ export default function PlanningPublic() {
             <div className="min-w-[1100px]">
               <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
                 <div className="w-56 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
-                  Segments / Lignes
+                  Segments / Lignes / Niveaux
                 </div>
                 <EnTeteUnites tl={tl} />
               </div>

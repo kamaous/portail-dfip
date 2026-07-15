@@ -626,7 +626,7 @@ export default function Tutorat() {
             {/* En-tête des mois */}
             <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
               <div className="w-64 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
-                Pôles / Formations
+                Pôles / Niveaux
               </div>
               <EnTeteUnites tl={tl} />
             </div>
@@ -636,8 +636,12 @@ export default function Tutorat() {
             {poles.filter(p => !segment || p.code === segment).map(pole => {
               const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
               const fichesPole = tutoratsAffiches.filter(t => t.pole_code === pole.code);
-              // Une ligne par formation ayant au moins une fiche
-              const formations = [...new Set(fichesPole.map(t => t.formation_nom || '(formation non précisée)'))];
+              // Une ligne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
+              // reste visible au survol de la barre et dans le détail de la fiche
+              const niveaux = [
+                ...Object.keys(NIVEAUX).filter(n => fichesPole.some(t => t.niveau === n)),
+                ...(fichesPole.some(t => !NIVEAUX[t.niveau]) ? ['AUTRE'] : []),
+              ];
               const focus = segment === pole.code;
               return (
                 <div key={pole.code} className="border-b border-slate-100 last:border-0">
@@ -677,15 +681,16 @@ export default function Tutorat() {
                     );
                   })()}
 
-                  {formations.length === 0 && (
+                  {niveaux.length === 0 && (
                     <p className="text-xs text-slate-400 italic px-3 py-2">Aucune fiche de suivi (les plages ci-dessus viennent du Planning annuel)</p>
                   )}
-                  {formations.map(fname => {
-                    const fiches = fichesPole.filter(t => (t.formation_nom || '(formation non précisée)') === fname);
+                  {niveaux.map(niv => {
+                    const nivLabel = NIVEAUX[niv]?.label || '(niveau non précisé)';
+                    const fiches = fichesPole.filter(t => (NIVEAUX[t.niveau] ? t.niveau : 'AUTRE') === niv);
                     return (
-                      <div key={fname} className="flex border-t border-slate-50">
+                      <div key={niv} className="flex border-t border-slate-50">
                         <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`}>
-                          <span className="line-clamp-2" title={fname}>{fname}</span>
+                          <span className="line-clamp-2" title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
                         </div>
                         <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                           <FondGrille tl={tl} />
@@ -699,7 +704,7 @@ export default function Tutorat() {
                               // Fiche sans dates : pastille cliquable en début de piste
                               return (
                                 <button key={t.id} onClick={() => setDetailId(t.id)}
-                                  title={`${t.promotion_code || ''} ${t.semestre_code || ''} — dates non renseignées (cliquer pour détails)`}
+                                  title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.semestre_code || ''} — dates non renseignées (cliquer pour détails)`}
                                   className="absolute top-1 bottom-1 rounded-md border-2 border-dashed px-1.5 text-[10px] font-semibold flex items-center"
                                   style={{ left: `${1 + idx * 8}%`, color: seg.color, borderColor: `${seg.color}66`, background: '#fff' }}>
                                   {t.promotion_code || '?'} {t.semestre_code || ''} · sans dates
@@ -711,7 +716,7 @@ export default function Tutorat() {
                             const bg = ETAT_BAR[t.etat_tutorat] || seg.color;
                             return (
                               <div key={t.id} onClick={() => setDetailId(t.id)}
-                                title={`${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} (cliquer pour détails)`}
+                                title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} (cliquer pour détails)`}
                                 className={`absolute rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
                                 style={{ left: `${l}%`, width: `${w}%`, background: bg }}>
                                 <span className="truncate">{t.promotion_code || ''} {t.semestre_code || ''} · {ETATS.etat_tutorat.options[t.etat_tutorat]}</span>

@@ -3,7 +3,7 @@ import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, ClipboardCheck, Trash2, Calendar, Gavel, LayoutGrid, GanttChartSquare, List, CheckSquare } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import { SelecteurCursus } from './Tutorat';
+import { SelecteurCursus, NIVEAUX } from './Tutorat';
 import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 
@@ -383,7 +383,7 @@ export default function Evaluations() {
           <div className="min-w-[1100px]">
             <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
               <div className="w-64 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
-                Pôles / Formations
+                Pôles / Niveaux
               </div>
               <EnTeteUnites tl={tl} />
             </div>
@@ -391,7 +391,12 @@ export default function Evaluations() {
             {poles.filter(p => !segment || p.code === segment).map(pole => {
               const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
               const sessPole = affiches.filter(s => s.pole_code === pole.code);
-              const formations = [...new Set(sessPole.map(s => s.formation_nom || '(formation ?)'))];
+              // Une ligne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
+              // reste visible au survol de la barre et dans le détail de l'évaluation
+              const niveaux = [
+                ...Object.keys(NIVEAUX).filter(n => sessPole.some(s => s.niveau === n)),
+                ...(sessPole.some(s => !NIVEAUX[s.niveau]) ? ['AUTRE'] : []),
+              ];
               const focus = segment === pole.code;
               return (
                 <div key={pole.code} className="border-b border-slate-100 last:border-0">
@@ -431,13 +436,14 @@ export default function Evaluations() {
                     );
                   })()}
 
-                  {formations.length === 0 && <p className="text-xs text-slate-400 italic px-3 py-2">Aucune évaluation saisie (plages du Planning annuel ci-dessus)</p>}
-                  {formations.map(fname => {
-                    const sess = sessPole.filter(s => (s.formation_nom || '(formation ?)') === fname);
+                  {niveaux.length === 0 && <p className="text-xs text-slate-400 italic px-3 py-2">Aucune évaluation saisie (plages du Planning annuel ci-dessus)</p>}
+                  {niveaux.map(niv => {
+                    const nivLabel = NIVEAUX[niv]?.label || '(niveau non précisé)';
+                    const sess = sessPole.filter(s => (NIVEAUX[s.niveau] ? s.niveau : 'AUTRE') === niv);
                     return (
-                      <div key={fname} className="flex border-t border-slate-50">
+                      <div key={niv} className="flex border-t border-slate-50">
                         <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`}>
-                          <span className="line-clamp-2" title={fname}>{fname}</span>
+                          <span className="line-clamp-2" title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
                         </div>
                         <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                           <FondGrille tl={tl} />
@@ -452,7 +458,7 @@ export default function Evaluations() {
                             const bg = s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color);
                             return (
                               <div key={s.id} onClick={() => setDetailId(s.id)}
-                                title={`${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${debut} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''}`}
+                                title={`${s.formation_nom || 'Formation non précisée'} — ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} ${s.promotion_code || ''} : ${debut} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''}`}
                                 className={`absolute rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'} ${s.session_num > 1 ? 'border-2 border-white/70 border-dashed' : ''}`}
                                 style={{ left: `${l}%`, width: `${w}%`, background: bg }}>
                                 <span className="truncate">{s.type_evaluation === 'DEVOIR' ? '📝' : ''} S{s.session_num} {s.promotion_code || ''} {s.semestre_code || ''}{s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}</span>
