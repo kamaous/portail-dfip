@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
-import { BookOpen, ClipboardCheck, Gavel, RefreshCw } from 'lucide-react';
+import { BookOpen, ClipboardCheck, FlaskConical, Gavel, RefreshCw } from 'lucide-react';
 import { OK_CIBLES } from './Tutorat';
 
 /* Module RÉSUMÉ — inspiré du classeur « Calendrier académique UN-CHK » :
-   - Onglets SEJA / STN / LSHE : « SUIVI DE L'EXÉCUTION » du pôle (responsable
-     pédagogique, tableau par niveau : état, semestre, dates, programme, progression)
-   - Onglet DFIP : « Suivi de la programmation des évaluations » (semestre,
-     arrêté le, programme, statut du suivi, fin examen + compteurs)          */
+   - Volets Tutorat / Évaluations (filtre principal)
+   - Onglets SEJA / STN / LSHE : « SUIVI DE L'EXÉCUTION » du pôle, par niveau
+     (filtres Promotion + Semestre)
+   - Onglet DFIP : « Suivi de la programmation des évaluations »
+     (filtres Promotion + Semestre + Programme + Statut du suivi)              */
 
 const POLES_SEG = {
   SEJA: { color: '#ea580c', light: '#fdeee3' },
@@ -23,9 +24,21 @@ const ETAT_TUT = {
   TERMINE: ['Terminé', 'bg-green-100 text-green-700'],
 };
 const SESSION_LABEL = { 1: 'Normale', 2: 'Rattrapage', 3: 'Spéciale' };
+const STATUTS_SUIVI = ['Examen à programmer', 'Examen programmé', 'Évaluations en cours', 'Examen terminé', 'Terminé et délibéré', 'Examen annulé'];
 
-const progression = (t) => Object.entries(OK_CIBLES).filter(([k, v]) => t[k] === v).length / 5;
-const fmtSemestre = (t) => t.niveau && t.semestre_code ? `${t.niveau}-Semestre ${t.semestre_code.replace('S', '')}` : (t.semestre_code || '—');
+const progTut = (t) => Object.entries(OK_CIBLES).filter(([k, v]) => t[k] === v).length / 5;
+/* Progression d'une évaluation : 5 jalons (programmée, épreuves reçues,
+   implémentées, évaluations terminées, délibérée) */
+const progEval = (e) => [
+  !!e.date_programmation,
+  e.reception_epreuves === 'TOTALE',
+  e.implementation_epreuves === 'TERMINE',
+  e.etat_eval === 'EVAL_TERMINEES',
+  e.delib_etat === 'TERMINEE',
+].filter(Boolean).length / 5;
+
+const fmtSemestre = (x) => x.niveau && x.semestre_code ? `${x.niveau}-Semestre ${x.semestre_code.replace('S', '')}` : (x.semestre_code || '—');
+const nomProgramme = (x) => x.formation_code || x.formation_nom || (x.pole_code ? `${x.pole_code} (pôle)` : '(pôle entier)');
 
 /* Statut du suivi (colonne DFIP), déduit de l'état réel de l'évaluation */
 function statutSuivi(e) {
@@ -49,6 +62,15 @@ function Barre({ pct }) {
   );
 }
 
+function Filtre({ value, onChange, children }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className={`!w-auto !py-1.5 !text-xs ${value ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+      {children}
+    </select>
+  );
+}
+
 export default function Resume() {
   const [tutorats, setTutorats] = useState([]);
   const [evals, setEvals] = useState([]);
@@ -56,8 +78,11 @@ export default function Resume() {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [onglet, setOnglet] = useState('SEJA');
+  const [volet, setVolet] = useState('TUTORAT'); // TUTORAT | EVALUATIONS (onglets pôles)
   const [fPromo, setFPromo] = useState('');
-  const [fSession, setFSession] = useState('');
+  const [fSem, setFSem] = useState('');
+  const [fProg, setFProg] = useState('');      // DFIP : programme
+  const [fStatut, setFStatut] = useState('');  // DFIP : statut du suivi
 
   function load() {
     setLoading(true);
@@ -75,35 +100,46 @@ export default function Resume() {
 
   const promotions = useMemo(() =>
     [...new Set([...tutorats, ...evals].map(x => x.promotion_code).filter(Boolean))].sort(), [tutorats, evals]);
+  const semestres = useMemo(() =>
+    [...new Set([...tutorats, ...evals].map(x => x.semestre_code).filter(Boolean))].sort(), [tutorats, evals]);
+  const programmes = useMemo(() =>
+    [...new Set(evals.map(nomProgramme))].sort(), [evals]);
 
-  const tutoratsF = useMemo(() => tutorats.filter(t => !fPromo || t.promotion_code === fPromo), [tutorats, fPromo]);
-  const evalsF = useMemo(() => evals.filter(e =>
-    (!fPromo || e.promotion_code === fPromo) && (!fSession || String(e.session_num) === fSession)), [evals, fPromo, fSession]);
+  const okPromoSem = (x) => (!fPromo || x.promotion_code === fPromo) && (!fSem || x.semestre_code === fSem);
+  const tutoratsF = useMemo(() => tutorats.filter(okPromoSem), [tutorats, fPromo, fSem]);
+  const evalsF = useMemo(() => evals.filter(okPromoSem), [evals, fPromo, fSem]);
+  // DFIP : filtres supplémentaires Programme + Statut du suivi
+  const evalsDfip = useMemo(() => evalsF.filter(e =>
+    (!fProg || nomProgramme(e) === fProg) && (!fStatut || statutSuivi(e)[0] === fStatut)), [evalsF, fProg, fStatut]);
 
   const pole = poles.find(p => p.code === onglet);
   const seg = POLES_SEG[onglet] || POLES_SEG.DFIP;
+  const estDfip = onglet === 'DFIP';
+  const voletEval = estDfip || volet === 'EVALUATIONS';
 
-  /* ===== Données onglet pôle : suivi de l'exécution (tutorat) ===== */
-  const fichesPole = tutoratsF.filter(t => t.pole_code === onglet);
+  /* ===== Données onglet pôle (volet Tutorat ou Évaluations) ===== */
+  const itemsPole = voletEval
+    ? evalsF.filter(e => e.pole_code === onglet)
+    : tutoratsF.filter(t => t.pole_code === onglet);
   const parNiveau = NIVEAUX_ORDRE
-    .map(niv => ({ niv, fiches: fichesPole.filter(t => t.niveau === niv) }))
-    .filter(g => g.fiches.length > 0);
-  const sansNiveau = fichesPole.filter(t => !NIVEAUX_ORDRE.includes(t.niveau));
-  const majPole = fichesPole.reduce((m, t) => (t.updated_at || '') > m ? t.updated_at : m, '');
+    .map(niv => ({ niv, items: itemsPole.filter(x => x.niveau === niv) }))
+    .filter(g => g.items.length > 0);
+  const sansNiveau = itemsPole.filter(x => !NIVEAUX_ORDRE.includes(x.niveau));
+  const majPole = itemsPole.reduce((m, x) => ((x.updated_at || x.created_at || '') > m ? (x.updated_at || x.created_at) : m), '');
 
   /* ===== Données onglet DFIP : programmation des évaluations ===== */
-  const evalsProg = [...evalsF].sort((a, b) => {
+  const evalsProg = [...evalsDfip].sort((a, b) => {
     const da = a.date_programmation || a.date_demarrage || '9999';
     const db_ = b.date_programmation || b.date_demarrage || '9999';
     return da.localeCompare(db_);
   });
-  const nbProgrammees = evalsF.filter(e => e.date_programmation).length;
-  const nbTerminees = evalsF.filter(e => e.etat_eval === 'EVAL_TERMINEES').length;
-  const nbDeliberees = evalsF.filter(e => e.delib_etat === 'TERMINEE').length;
+  const nbProgrammees = evalsDfip.filter(e => e.date_programmation).length;
+  const nbTerminees = evalsDfip.filter(e => e.etat_eval === 'EVAL_TERMINEES').length;
+  const nbDeliberees = evalsDfip.filter(e => e.delib_etat === 'TERMINEE').length;
   const nbReportees = incidents.filter(i => i.conseq_eval === 'REPORT').length;
   /* Encart : programmes en cours avec leur taux d'exécution (tutorat en cours) */
   const enCours = tutoratsF.filter(t => t.etat_tutorat === 'EN_COURS')
-    .sort((a, b) => progression(b) - progression(a)).slice(0, 6);
+    .sort((a, b) => progTut(b) - progTut(a)).slice(0, 6);
 
   if (loading) return (
     <div className="flex items-center justify-center h-64">
@@ -121,8 +157,8 @@ export default function Resume() {
         <button onClick={load} className="btn-secondary flex items-center gap-2"><RefreshCw size={15} /> Actualiser</button>
       </div>
 
-      {/* Onglets façon classeur + filtres */}
-      <div className="card !p-3">
+      {/* Onglets façon classeur + volets + filtres */}
+      <div className="card !p-3 space-y-2.5">
         <div className="flex flex-wrap items-center gap-2">
           {['SEJA', 'STN', 'LSHE', 'DFIP'].map(k => {
             const s = POLES_SEG[k];
@@ -135,33 +171,61 @@ export default function Resume() {
               </button>
             );
           })}
-          <div className="ml-auto flex items-center gap-2 flex-wrap">
-            <select value={fPromo} onChange={e => setFPromo(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fPromo ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
-              <option value="">Toutes promotions</option>
-              {promotions.map(p => <option key={p} value={p}>{p}</option>)}
-            </select>
-            {onglet === 'DFIP' && (
-              <select value={fSession} onChange={e => setFSession(e.target.value)} className={`!w-auto !py-1.5 !text-xs ${fSession ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
-                <option value="">Toutes sessions</option>
-                <option value="1">Session Normale</option>
-                <option value="2">Session Rattrapage</option>
-                <option value="3">Session Spéciale</option>
-              </select>
-            )}
-          </div>
+
+          {/* Volets Tutorat / Évaluations (onglets pôles uniquement) */}
+          {!estDfip && (
+            <div className="flex rounded-xl border border-slate-200 overflow-hidden ml-1">
+              {[['TUTORAT', BookOpen, 'Tutorat'], ['EVALUATIONS', FlaskConical, 'Évaluations']].map(([v, Icon, label]) => (
+                <button key={v} onClick={() => setVolet(v)}
+                  className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-colors ${volet === v ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold uppercase tracking-wide text-slate-400">Filtres :</span>
+          <Filtre value={fPromo} onChange={setFPromo}>
+            <option value="">Toutes promotions</option>
+            {promotions.map(p => <option key={p} value={p}>{p}</option>)}
+          </Filtre>
+          <Filtre value={fSem} onChange={setFSem}>
+            <option value="">Tous semestres</option>
+            {semestres.map(s => <option key={s} value={s}>{s}</option>)}
+          </Filtre>
+          {estDfip && (
+            <>
+              <Filtre value={fProg} onChange={setFProg}>
+                <option value="">Tous programmes</option>
+                {programmes.map(p => <option key={p} value={p}>{p}</option>)}
+              </Filtre>
+              <Filtre value={fStatut} onChange={setFStatut}>
+                <option value="">Tous statuts du suivi</option>
+                {STATUTS_SUIVI.map(s => <option key={s} value={s}>{s}</option>)}
+              </Filtre>
+            </>
+          )}
+          {(fPromo || fSem || fProg || fStatut) && (
+            <button onClick={() => { setFPromo(''); setFSem(''); setFProg(''); setFStatut(''); }}
+              className="text-xs text-blue-600 hover:underline">Réinitialiser</button>
+          )}
         </div>
       </div>
 
-      {onglet !== 'DFIP' ? (
+      {!estDfip ? (
         /* ================== ONGLET PÔLE : SUIVI DE L'EXÉCUTION ================== */
         <div className="card !p-0 overflow-hidden">
           <div className="px-5 py-4 text-white" style={{ background: `linear-gradient(135deg, ${seg.color}, ${seg.color}cc)` }}>
-            <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi de l'exécution — remontée des activités</p>
+            <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">
+              Suivi de l'exécution — {voletEval ? 'évaluations' : 'tutorat'}
+            </p>
             <h2 className="font-bold text-lg leading-tight">{pole?.nom || onglet}</h2>
             <div className="flex flex-wrap gap-x-6 gap-y-1 mt-1.5 text-xs text-white/85">
               <span>Responsable pédagogique : <strong>{pole?.responsable_pedagogique ? `${pole.responsable_pedagogique.prenom} ${pole.responsable_pedagogique.nom}` : '—'}</strong></span>
               <span>Dernière mise à jour : <strong>{majPole ? majPole.slice(0, 16) : '—'}</strong></span>
-              <span>{fichesPole.length} programme(s) suivis</span>
+              <span>{itemsPole.length} {voletEval ? 'évaluation(s)' : 'programme(s)'} suivi(s)</span>
             </div>
           </div>
 
@@ -178,9 +242,12 @@ export default function Resume() {
                 </tr>
               </thead>
               <tbody>
-                {[...parNiveau, ...(sansNiveau.length ? [{ niv: null, fiches: sansNiveau }] : [])].map(({ niv, fiches }) => {
-                  const pctNiv = fiches.reduce((s, t) => s + progression(t), 0) / fiches.length;
-                  const termines = fiches.filter(t => t.etat_tutorat === 'TERMINE').length;
+                {[...parNiveau, ...(sansNiveau.length ? [{ niv: null, items: sansNiveau }] : [])].map(({ niv, items }) => {
+                  const prog = voletEval ? progEval : progTut;
+                  const pctNiv = items.reduce((s, x) => s + prog(x), 0) / items.length;
+                  const termines = voletEval
+                    ? items.filter(e => e.etat_eval === 'EVAL_TERMINEES' || e.delib_etat === 'TERMINEE').length
+                    : items.filter(t => t.etat_tutorat === 'TERMINE').length;
                   return [
                     /* Ligne d'agrégat du niveau (comme la ligne LICENCE 1 du classeur) */
                     <tr key={`niv-${niv}`} style={{ background: seg.light }}>
@@ -188,31 +255,40 @@ export default function Resume() {
                         {niv ? NIVEAU_LABEL[niv] : 'AUTRES'}
                       </td>
                       <td className="px-4 py-2 text-xs font-semibold" style={{ color: seg.color }}>
-                        {fiches.length} programme(s) · {termines} terminé(s)
+                        {items.length} {voletEval ? 'évaluation(s)' : 'programme(s)'} · {termines} terminé(s)
                       </td>
                       <td className="px-4 py-2"><Barre pct={pctNiv} /></td>
                     </tr>,
-                    ...fiches.map(t => {
-                      const [lbl, cls] = ETAT_TUT[t.etat_tutorat] || ETAT_TUT.PAS_DEMARRE;
+                    ...items.map(x => {
+                      const [lbl, cls] = voletEval ? statutSuivi(x) : (ETAT_TUT[x.etat_tutorat] || ETAT_TUT.PAS_DEMARRE);
+                      const debut = voletEval ? x.date_demarrage : x.date_debut;
+                      const fin = voletEval ? x.date_fin_prevue : x.date_fin;
                       return (
-                        <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                          <td className="px-4 py-2"><span className={`badge ${cls} text-[11px]`}>{lbl}</span></td>
-                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(t)}</td>
-                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_debut || '—'}</td>
-                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_fin || '—'}</td>
+                        <tr key={x.id} className="border-b border-slate-50 hover:bg-slate-50/60">
                           <td className="px-4 py-2">
-                            <span className="font-medium text-slate-800">{t.formation_code || t.formation_nom || '(pôle entier)'}</span>
-                            {t.promotion_code && <span className="text-xs text-slate-400"> · {t.promotion_code}</span>}
-                            {t.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                            <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
+                            {voletEval && x.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
                           </td>
-                          <td className="px-4 py-2"><Barre pct={progression(t)} /></td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(x)}</td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{debut || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{fin || '—'}</td>
+                          <td className="px-4 py-2">
+                            <span className="font-medium text-slate-800" title={x.formation_nom || ''}>{nomProgramme(x)}</span>
+                            {x.promotion_code && <span className="text-xs text-slate-400"> · {x.promotion_code}</span>}
+                            {voletEval && <span className="text-xs text-slate-400"> · S{x.session_num} {SESSION_LABEL[x.session_num]}</span>}
+                            {voletEval && x.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
+                            {x.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                          </td>
+                          <td className="px-4 py-2"><Barre pct={voletEval ? progEval(x) : progTut(x)} /></td>
                         </tr>
                       );
                     }),
                   ];
                 })}
-                {fichesPole.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucun programme suivi pour ce pôle{fPromo ? ` (promotion ${fPromo})` : ''}</td></tr>
+                {itemsPole.length === 0 && (
+                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                    Aucune {voletEval ? 'évaluation' : 'fiche de tutorat'} pour ce pôle avec ces filtres
+                  </td></tr>
                 )}
               </tbody>
             </table>
@@ -226,7 +302,7 @@ export default function Resume() {
               <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi de la programmation des évaluations</p>
               <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
               <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3">
-                {[['Effectif', evalsF.length], ['Programmées', nbProgrammees], ['Terminées', nbTerminees], ['Délibérées', nbDeliberees], ['Reportées', nbReportees]].map(([l, v]) => (
+                {[['Effectif', evalsDfip.length], ['Programmées', nbProgrammees], ['Terminées', nbTerminees], ['Délibérées', nbDeliberees], ['Reportées', nbReportees]].map(([l, v]) => (
                   <div key={l} className="bg-white/12 border border-white/20 rounded-xl px-3 py-2 text-center">
                     <p className="text-xl font-bold tabular-nums">{v}</p>
                     <p className="text-[11px] text-white/75 uppercase tracking-wide">{l}</p>
@@ -257,7 +333,7 @@ export default function Resume() {
                         <td className="px-4 py-2 whitespace-nowrap tabular-nums font-medium text-slate-800">{e.date_programmation || '—'}</td>
                         <td className="px-4 py-2">
                           <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: pc }} />
-                          <span className="font-medium text-slate-800">{e.formation_code || e.formation_nom || `${e.pole_code} (pôle)`}</span>
+                          <span className="font-medium text-slate-800" title={e.formation_nom || ''}>{nomProgramme(e)}</span>
                           {e.promotion_code && <span className="text-xs text-slate-400"> · {e.promotion_code}</span>}
                           {e.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
                         </td>
@@ -289,9 +365,9 @@ export default function Resume() {
                   <div key={t.id} className="flex items-center gap-3">
                     <span className="text-xs text-slate-500 w-32 shrink-0 whitespace-nowrap">{fmtSemestre(t)}</span>
                     <span className="text-sm font-medium text-slate-800 w-44 truncate shrink-0" title={t.formation_nom}>
-                      {t.formation_code || t.formation_nom || `${t.pole_code} (pôle)`}
+                      {nomProgramme(t)}
                     </span>
-                    <Barre pct={progression(t)} />
+                    <Barre pct={progTut(t)} />
                     <span className="text-[11px] text-slate-400 shrink-0">{t.pole_code}</span>
                   </div>
                 ))}

@@ -636,11 +636,25 @@ export default function Tutorat() {
             {poles.filter(p => !segment || p.code === segment).map(pole => {
               const seg = POLES_SEG[pole.code] || POLES_SEG.STN;
               const fichesPole = tutoratsAffiches.filter(t => t.pole_code === pole.code);
+              const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
               // Une ligne par NIVEAU (mêmes lignes que le Planning annuel) — la formation
-              // reste visible au survol de la barre et dans le détail de la fiche
-              const niveaux = [
-                ...Object.keys(NIVEAUX).filter(n => fichesPole.some(t => t.niveau === n)),
-                ...(fichesPole.some(t => !NIVEAUX[t.niveau]) ? ['AUTRE'] : []),
+              // reste visible au survol de la barre et dans le détail de la fiche.
+              // Les plages du Planning annuel se superposent aux barres de leur niveau.
+              const LIGNE_NIV = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
+              const rows = [
+                ...Object.keys(NIVEAUX)
+                  .filter(n => fichesPole.some(t => t.niveau === n) || plagesPole.some(p => LIGNE_NIV[p.ligne] === n))
+                  .map(n => ({
+                    key: n, label: NIVEAUX[n].label,
+                    fiches: fichesPole.filter(t => t.niveau === n),
+                    plages: plagesPole.filter(p => LIGNE_NIV[p.ligne] === n),
+                  })),
+                ...(fichesPole.some(t => !NIVEAUX[t.niveau])
+                  ? [{ key: 'AUTRE', label: '(niveau non précisé)', fiches: fichesPole.filter(t => !NIVEAUX[t.niveau]), plages: [] }]
+                  : []),
+                // Plages du planning dont la ligne n'est pas un niveau standard : piste dédiée
+                ...[...new Set(plagesPole.filter(p => !LIGNE_NIV[p.ligne]).map(p => p.ligne))]
+                  .map(lg => ({ key: `P:${lg}`, label: lg, fiches: [], plages: plagesPole.filter(p => p.ligne === lg) })),
               ];
               const focus = segment === pole.code;
               return (
@@ -650,51 +664,30 @@ export default function Tutorat() {
                     <span className="text-xs text-slate-400 ml-auto">{fichesPole.length} fiche(s)</span>
                   </div>
 
-                  {/* Activités TUTORAT du Planning annuel (récupérées automatiquement, sans re-création) */}
-                  {(() => {
-                    const plagesPole = plagesPlanning.filter(p => p.pole_code === pole.code);
-                    if (plagesPole.length === 0) return null;
-                    return (
-                      <div className="flex border-t border-slate-50 bg-slate-50/60">
-                        <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-xs font-semibold ${focus ? 'py-3' : 'py-2'}`} style={{ color: seg.color }}>
-                          📚 Planning annuel
-                        </div>
-                        <div className={`flex-1 relative ${focus ? 'h-11' : 'h-9'}`}>
-                          <FondGrille tl={tl} />
-                          <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
-                          {plagesPole.map((p, i) => {
-                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
-                            if (rr <= 0 || lr >= 100) return null;
-                            const l = Math.max(0, lr);
-                            const w = Math.max(Math.min(100, rr) - l, 1);
-                            return (
-                              <div key={i}
-                                title={`Activité du Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`}
-                                className="absolute top-1 bottom-1 rounded-md border-2 border-dashed flex items-center px-2 text-[10px] font-bold overflow-hidden"
-                                style={{ left: `${l}%`, width: `${w}%`, borderColor: seg.color, color: seg.color, background: '#ffffffcc' }}>
-                                <span className="truncate">📚 {p.libelle} · {p.ligne}</span>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-                    );
-                  })()}
-
-                  {niveaux.length === 0 && (
-                    <p className="text-xs text-slate-400 italic px-3 py-2">Aucune fiche de suivi (les plages ci-dessus viennent du Planning annuel)</p>
+                  {rows.length === 0 && (
+                    <p className="text-xs text-slate-400 italic px-3 py-2">Aucune fiche de suivi ni plage du Planning annuel</p>
                   )}
-                  {niveaux.map(niv => {
-                    const nivLabel = NIVEAUX[niv]?.label || '(niveau non précisé)';
-                    const fiches = fichesPole.filter(t => (NIVEAUX[t.niveau] ? t.niveau : 'AUTRE') === niv);
+                  {rows.map(({ key, label: nivLabel, fiches, plages }) => {
                     return (
-                      <div key={niv} className="flex border-t border-slate-50">
+                      <div key={key} className="flex border-t border-slate-50">
                         <div className={`w-64 shrink-0 px-3 border-r border-slate-100 text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`}>
                           <span className="line-clamp-2" title={`${nivLabel} — formations au survol des barres`}>{nivLabel}</span>
                         </div>
                         <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                           <FondGrille tl={tl} />
                           <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
+                          {/* Plages du Planning annuel : cadre pointillé superposé aux barres du niveau */}
+                          {plages.map((p, i) => {
+                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
+                            if (rr <= 0 || lr >= 100) return null;
+                            const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
+                            return (
+                              <div key={`pl${i}`}
+                                title={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`}
+                                className="absolute top-0.5 bottom-0.5 rounded-lg border-2 border-dashed cursor-help"
+                                style={{ left: `${l}%`, width: `${w}%`, borderColor: seg.color, background: `${seg.color}0f` }} />
+                            );
+                          })}
                           {fiches.map((t, idx) => {
                             const debut = t.date_debut || t.date_demarree_le;
                             const fin = t.date_fin || t.date_terminee_le;
@@ -705,7 +698,7 @@ export default function Tutorat() {
                               return (
                                 <button key={t.id} onClick={() => setDetailId(t.id)}
                                   title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.semestre_code || ''} — dates non renseignées (cliquer pour détails)`}
-                                  className="absolute top-1 bottom-1 rounded-md border-2 border-dashed px-1.5 text-[10px] font-semibold flex items-center"
+                                  className="absolute z-10 top-1 bottom-1 rounded-md border-2 border-dashed px-1.5 text-[10px] font-semibold flex items-center"
                                   style={{ left: `${1 + idx * 8}%`, color: seg.color, borderColor: `${seg.color}66`, background: '#fff' }}>
                                   {t.promotion_code || '?'} {t.semestre_code || ''} · sans dates
                                 </button>
@@ -717,10 +710,23 @@ export default function Tutorat() {
                             return (
                               <div key={t.id} onClick={() => setDetailId(t.id)}
                                 title={`${t.formation_nom || 'Formation non précisée'} — ${t.promotion_code || ''} ${t.niveau || ''} ${t.semestre_code || ''} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[t.etat_tutorat]} (cliquer pour détails)`}
-                                className={`absolute rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
+                                className={`absolute z-10 rounded-md flex items-center gap-1 px-2 font-semibold text-white shadow-sm overflow-hidden cursor-pointer hover:opacity-85 hover:ring-2 hover:ring-white/60 ${focus ? 'top-2 bottom-2 text-xs' : 'top-1 bottom-1 text-[10px]'}`}
                                 style={{ left: `${l}%`, width: `${w}%`, background: bg }}>
                                 <span className="truncate">{t.promotion_code || ''} {t.semestre_code || ''} · {ETATS.etat_tutorat.options[t.etat_tutorat]}</span>
                               </div>
+                            );
+                          })}
+                          {/* Étiquettes des plages du planning : pastille lisible PAR-DESSUS les barres */}
+                          {plages.map((p, i) => {
+                            const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
+                            if (rr <= 0 || lr >= 100) return null;
+                            const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
+                            return (
+                              <span key={`pt${i}`}
+                                className="absolute z-20 pointer-events-none text-[9px] font-bold px-1.5 py-px rounded-md bg-white/90 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis"
+                                style={{ left: `calc(${l}% + 4px)`, top: '50%', transform: 'translateY(-50%)', color: seg.color, maxWidth: `calc(${w}% - 8px)` }}>
+                                📚 {p.libelle} · {p.ligne}
+                              </span>
                             );
                           })}
                         </div>
