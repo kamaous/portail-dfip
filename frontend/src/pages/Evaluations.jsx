@@ -429,7 +429,7 @@ export default function Evaluations() {
                         <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                           <FondGrille tl={tl} />
                           <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
-                          {/* Plages du Planning annuel : cadre pointillé superposé aux barres du niveau */}
+                          {/* Plages du Planning annuel : ligne de tirets •――― ―――• superposée aux barres */}
                           {plages.map((p, i) => {
                             const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
                             if (rr <= 0 || lr >= 100) return null;
@@ -437,8 +437,11 @@ export default function Evaluations() {
                             return (
                               <div key={`pl${i}`}
                                 title={`Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`}
-                                className="absolute top-0.5 bottom-0.5 rounded-lg border-2 border-dashed cursor-help"
-                                style={{ left: `${l}%`, width: `${w}%`, borderColor: seg.color, background: `${seg.color}0f` }} />
+                                className="absolute inset-y-0 cursor-help"
+                                style={{ left: `${l}%`, width: `${w}%` }}>
+                                <div className="absolute left-1 right-1 top-1/2 -translate-y-1/2 border-t-2 border-dashed"
+                                  style={{ borderColor: seg.color }} />
+                              </div>
                             );
                           })}
                           {sess.map(s => {
@@ -458,17 +461,20 @@ export default function Evaluations() {
                               </div>
                             );
                           })}
-                          {/* Étiquettes des plages du planning : pastille lisible PAR-DESSUS les barres */}
+                          {/* Points de début/fin + intitulé centré, lisibles PAR-DESSUS les barres */}
                           {plages.map((p, i) => {
                             const lr = tl.pctRaw(p.date_debut), rr = tl.pctRaw(p.date_fin);
                             if (rr <= 0 || lr >= 100) return null;
                             const l = Math.max(0, lr), w = Math.max(Math.min(100, rr) - l, 1);
                             return (
-                              <span key={`pt${i}`}
-                                className="absolute z-20 pointer-events-none text-[9px] font-bold px-1.5 py-px rounded-md bg-white/90 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis"
-                                style={{ left: `calc(${l}% + 4px)`, top: '50%', transform: 'translateY(-50%)', color: seg.color, maxWidth: `calc(${w}% - 8px)` }}>
-                                {p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} {p.libelle} · {p.ligne}
-                              </span>
+                              <div key={`pt${i}`} className="absolute inset-y-0 z-20 pointer-events-none" style={{ left: `${l}%`, width: `${w}%` }}>
+                                <span className="absolute left-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: seg.color }} />
+                                <span className="absolute right-0 top-1/2 -translate-y-1/2 w-2.5 h-2.5 rounded-full border-2 border-white shadow" style={{ background: seg.color }} />
+                                <span className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 text-[9px] font-bold px-1.5 py-px rounded-md bg-white/95 shadow-sm whitespace-nowrap overflow-hidden text-ellipsis max-w-[calc(100%-18px)]"
+                                  style={{ color: seg.color }}>
+                                  {p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} {p.libelle} · {p.ligne}
+                                </span>
+                              </div>
                             );
                           })}
                         </div>
