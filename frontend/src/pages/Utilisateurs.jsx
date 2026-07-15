@@ -4,10 +4,11 @@ import toast from 'react-hot-toast';
 import { Plus, RefreshCw, UserX, UserCheck, Edit } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
+const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
 const ROLE_LABELS = {
   RECTEUR: 'Recteur', VICE_RECTEUR: 'Vice-Recteur Pédagogie', DIRECTEUR: 'Directeur DFIP',
   DIRECTEUR_DES: 'Directeur des Études et de la Scolarité (DES)',
+  COORDONNATEUR: 'Coordonnateur du Projet',
   CHEF_SERVICE: 'Chef de Service', CHEF_DIV_TECHNOPEDAGOGIE: 'Chef div. Technopédagogie',
   CHEF_DIV_EVALUATION: 'Chef division DFE (Formation & Évaluations)', RESPONSABLE_POLE: 'Directeur de Pôle',
   RESPONSABLE_PEDAGOGIQUE: 'Responsable pédagogique du Pôle',
@@ -19,6 +20,7 @@ const ROLE_COLORS = {
   VICE_RECTEUR: 'bg-slate-200 text-slate-800',
   DIRECTEUR: 'bg-purple-100 text-purple-800',
   DIRECTEUR_DES: 'bg-fuchsia-100 text-fuchsia-800',
+  COORDONNATEUR: 'bg-yellow-100 text-yellow-800',
   CHEF_SERVICE: 'bg-blue-100 text-blue-800',
   CHEF_DIV_TECHNOPEDAGOGIE: 'bg-teal-100 text-teal-800',
   CHEF_DIV_EVALUATION: 'bg-indigo-100 text-indigo-800',

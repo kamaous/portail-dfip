@@ -21,7 +21,7 @@ module.exports = {
 
   // Hiérarchie des rôles (plus l'index est bas, plus le rôle est élevé)
   ROLES: [
-    'RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'CHEF_SERVICE',
+    'RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE',
     'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION',
     'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION',
     'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'
@@ -33,14 +33,22 @@ module.exports = {
     RESPONSABLE_PEDAGOGIQUE: ['RESPONSABLE_POLE', 'RESPONSABLE_FORMATION'],
   },
 
+  // Alias de droits : le rôle hérite de TOUS les droits du rôle cible
+  // (l'utilisateur garde son libellé propre, mais est traité comme le rôle cible).
+  ROLE_ALIAS: {
+    COORDONNATEUR: 'ADMIN_PORTAIL',  // Coordonnateur du projet : tout voir, tout tester
+    DIRECTEUR_DES: 'DIRECTEUR',      // DES : mêmes vues et droits que le Directeur DFIP
+  },
+
   // Rôles « visiteurs » : accès en LECTURE SEULE au planning annuel uniquement
-  ROLES_VISITEURS: ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'],
+  ROLES_VISITEURS: ['RECTEUR', 'VICE_RECTEUR', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'],
 
   ROLE_LABELS: {
     RECTEUR: 'Recteur',
     VICE_RECTEUR: 'Vice-Recteur Pédagogie',
     DIRECTEUR: 'Directeur DFIP',
     DIRECTEUR_DES: 'Directeur des Études et de la Scolarité (DES)',
+    COORDONNATEUR: 'Coordonnateur du Projet',
     CHEF_SERVICE: 'Chef de Service',
     CHEF_DIV_TECHNOPEDAGOGIE: 'Chef division Technopédagogie',
     CHEF_DIV_EVALUATION: 'Chef division DFE (Formation & Évaluations)',

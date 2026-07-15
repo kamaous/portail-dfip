@@ -50,6 +50,12 @@ export default function PlanningPublic() {
   }, [data, tl]);
 
   const activites = data?.activites || [];
+  // Lignes paramétrées côté serveur (fallback : structure historique)
+  const lignesMap = useMemo(() => {
+    const m = {};
+    (data?.lignes || []).forEach(l => { (m[l.segment] = m[l.segment] || []).push(l.nom); });
+    return m;
+  }, [data]);
 
   return (
     <div className="min-h-screen bg-slate-50">
@@ -112,7 +118,7 @@ export default function PlanningPublic() {
                 .filter(([key]) => !segmentActif || key === segmentActif)
                 .map(([key, seg]) => {
                   const acts = activites.filter(a => a.segment === key);
-                  const lignes = [...new Set([...(LIGNES_DEFAUT[key] || []), ...acts.map(a => a.ligne)])];
+                  const lignes = [...new Set([...(lignesMap[key] || LIGNES_DEFAUT[key] || []), ...acts.map(a => a.ligne)])];
                   const focus = segmentActif === key;
                   return (
                     <div key={key} className="border-b border-slate-100 last:border-0">

@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Allow: /public
+Disallow: /api/
+Disallow: /uploads/
+
+Sitemap: https://pedagogie.tekkina.sn/sitemap.xml

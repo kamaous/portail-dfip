@@ -159,6 +159,42 @@ router.get('/perimetre', auth, (req, res) => {
   });
 });
 
+/* ===== Lignes (niveaux) paramétrables des segments ===== */
+
+// GET /api/planning/lignes — liste des lignes par segment (tous les profils, visiteurs inclus)
+router.get('/lignes', auth, (req, res) => {
+  res.json(getDb().prepare('SELECT * FROM planning_lignes ORDER BY segment, ordre, nom').all());
+});
+
+// POST /api/planning/lignes — ajout d'une ligne/niveau par le Directeur DFIP (ou l'Admin)
+router.post('/lignes', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const { segment, nom } = req.body;
+  if (!segment || !nom?.trim()) return res.status(400).json({ error: 'Segment et nom requis' });
+  if (!SEGMENTS.includes(segment)) return res.status(400).json({ error: 'Segment invalide' });
+  const db = getDb();
+  try {
+    const max = db.prepare('SELECT COALESCE(MAX(ordre), -1) as m FROM planning_lignes WHERE segment = ?').get(segment).m;
+    const r = db.prepare('INSERT INTO planning_lignes (segment, nom, ordre, created_by) VALUES (?, ?, ?, ?)')
+      .run(segment, nom.trim(), max + 1, req.user.id);
+    db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, 'CREATE_LIGNE', 'CALENDRIER', `${segment}: ${nom.trim()}`);
+    res.status(201).json(db.prepare('SELECT * FROM planning_lignes WHERE id = ?').get(r.lastInsertRowid));
+  } catch {
+    res.status(409).json({ error: 'Cette ligne existe déjà pour ce segment' });
+  }
+});
+
+// DELETE /api/planning/lignes/:id — suppression si aucune activité ne l'utilise
+router.delete('/lignes/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const l = db.prepare('SELECT * FROM planning_lignes WHERE id = ?').get(req.params.id);
+  if (!l) return res.status(404).json({ error: 'Ligne introuvable' });
+  const utilisee = db.prepare('SELECT COUNT(*) as c FROM planning_activites WHERE segment = ? AND ligne = ?').get(l.segment, l.nom).c;
+  if (utilisee > 0) return res.status(409).json({ error: `Impossible : ${utilisee} activité(s) utilisent cette ligne` });
+  db.prepare('DELETE FROM planning_lignes WHERE id = ?').run(req.params.id);
+  res.json({ message: 'Ligne supprimée' });
+});
+
 // GET /api/planning/plages?type=TUTORAT|EVALUATIONS&annee_id= — plages typées par pôle
 // (alimente dynamiquement les modules Tutorat et Évaluations)
 router.get('/plages', auth, (req, res) => {
@@ -179,11 +215,12 @@ router.get('/plages', auth, (req, res) => {
 
 // POST /api/planning
 router.post('/', auth, (req, res) => {
-  const { annee_id, segment, ligne, libelle, date_debut, date_fin, couleur, type, sous_type } = req.body;
+  let { annee_id, segment, ligne, libelle, date_debut, date_fin, couleur, type, sous_type } = req.body;
   if (!annee_id || !segment || !ligne || !libelle || !date_debut || !date_fin) {
     return res.status(400).json({ error: 'Année, segment, ligne, libellé et dates requis' });
   }
   if (!SEGMENTS.includes(segment)) return res.status(400).json({ error: 'Segment invalide' });
+  if (segment === 'RECTORAT') { type = null; sous_type = null; } // le Rectorat n'a pas de type d'activité
   if (date_fin < date_debut) return res.status(400).json({ error: 'La date de fin doit suivre la date de début' });
   if (type && !['TUTORAT', 'EVALUATIONS'].includes(type)) return res.status(400).json({ error: 'Type invalide' });
   if (type === 'EVALUATIONS' && sous_type && !['EXAMEN', 'DEVOIRS'].includes(sous_type)) {

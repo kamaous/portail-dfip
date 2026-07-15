@@ -1,11 +1,15 @@
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET, ROLE_HERITAGE, ROLES_VISITEURS } = require('../config');
+const { JWT_SECRET, ROLE_HERITAGE, ROLES_VISITEURS, ROLE_ALIAS } = require('../config');
 const { getDb } = require('../db/connection');
 
-/* Rôles effectifs d'un utilisateur (héritage inclus).
-   Ex: RESPONSABLE_PEDAGOGIQUE → [RESPONSABLE_PEDAGOGIQUE, RESPONSABLE_POLE, RESPONSABLE_FORMATION] */
+/* Rôles effectifs d'un utilisateur (alias + héritage inclus).
+   Ex: RESPONSABLE_PEDAGOGIQUE → [RESPONSABLE_PEDAGOGIQUE, RESPONSABLE_POLE, RESPONSABLE_FORMATION]
+       COORDONNATEUR → [COORDONNATEUR, ADMIN_PORTAIL] */
 function rolesEffectifs(role) {
-  return [role, ...(ROLE_HERITAGE[role] || [])];
+  const set = new Set([role]);
+  if (ROLE_ALIAS[role]) set.add(ROLE_ALIAS[role]);
+  for (const r of [...set]) (ROLE_HERITAGE[r] || []).forEach(h => set.add(h));
+  return [...set];
 }
 function hasRole(user, ...roles) {
   if (!user) return false;
@@ -73,7 +77,15 @@ function auth(req, res, next) {
     const user = db.prepare('SELECT * FROM users WHERE id = ? AND actif = 1').get(payload.id);
     if (!user) return res.status(401).json({ error: 'Compte désactivé' });
 
-    req.user = { ...payload, ...user, session_id: session.id, roles_effectifs: rolesEffectifs(user.role) };
+    // Alias de droits : le rôle est traité comme son rôle cible partout dans l'API
+    // (COORDONNATEUR → ADMIN_PORTAIL, DIRECTEUR_DES → DIRECTEUR) ; role_reel conserve l'original.
+    req.user = {
+      ...payload, ...user,
+      role: ROLE_ALIAS[user.role] || user.role,
+      role_reel: user.role,
+      session_id: session.id,
+      roles_effectifs: rolesEffectifs(user.role),
+    };
 
     // Visiteurs (Recteur, Vice-Recteur, DES, Scolarité, Membres, Enseignants, Étudiants) :
     // lecture seule du planning annuel uniquement.
@@ -103,7 +115,7 @@ function requireMinRole(minRole) {
     if (!req.user) return res.status(401).json({ error: 'Non authentifié' });
     const userLevel = ROLE_LEVEL[req.user.role] || 0;
     const minLevel = ROLE_LEVEL[minRole] || 0;
-    if (req.user.role !== 'ADMIN_PORTAIL' && userLevel < minLevel) {
+    if (!req.user.roles_effectifs.includes('ADMIN_PORTAIL') && userLevel < minLevel) {
       return res.status(403).json({ error: 'Accès refusé — niveau insuffisant' });
     }
     next();

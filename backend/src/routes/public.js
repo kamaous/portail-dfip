@@ -19,8 +19,9 @@ router.get('/planning', (req, res) => {
   `).all(annee_id);
   const vacances = db.prepare('SELECT libelle, date_debut, date_fin FROM vacances WHERE annee_id = ? OR annee_id IS NULL ORDER BY date_debut').all(annee_id);
   const feries = db.prepare('SELECT date, libelle, recurrent FROM jours_feries ORDER BY date').all();
+  const lignes = db.prepare('SELECT segment, nom FROM planning_lignes ORDER BY segment, ordre, nom').all();
 
-  res.json({ annees, annee_id, activites, vacances, feries });
+  res.json({ annees, annee_id, activites, vacances, feries, lignes });
 });
 
 module.exports = router;

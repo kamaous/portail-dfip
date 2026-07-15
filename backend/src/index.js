@@ -6,6 +6,32 @@ const { getDb } = require('./db/connection');
 
 const app = express();
 
+/* ===== Durcissement sécurité ===== */
+app.disable('x-powered-by');
+app.set('trust proxy', 1); // derrière nginx : la vraie IP client vient de X-Forwarded-For
+
+// En-têtes de sécurité sur toutes les réponses API
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'SAMEORIGIN');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader('Cache-Control', 'no-store'); // les réponses API ne doivent pas être mises en cache
+  next();
+});
+
+// Limite de débit globale : 600 requêtes / minute / IP (large pour l'usage normal,
+// bloque les scans et scripts agressifs). En mémoire, remis à zéro chaque minute.
+let fenetreDebit = new Map();
+setInterval(() => { fenetreDebit = new Map(); }, 60 * 1000).unref();
+app.use((req, res, next) => {
+  const ip = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const n = (fenetreDebit.get(ip) || 0) + 1;
+  fenetreDebit.set(ip, n);
+  if (n > 600) return res.status(429).json({ error: 'Trop de requêtes, ralentissez.' });
+  next();
+});
+
 app.use(cors({ origin: ['http://localhost:5173', 'http://localhost:5174', 'http://localhost:3000', 'https://pedagogie.tekkina.sn'] }));
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));

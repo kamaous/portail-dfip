@@ -549,6 +549,34 @@ function runMigrations() {
     ref_type:               'TEXT',    // TUTORAT | SESSION_EXAMEN
     ref_id:                 'INTEGER',
   });
+
+  // Planning annuel : lignes (niveaux) paramétrables par segment — gérées par le Directeur DFIP
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS planning_lignes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      segment TEXT NOT NULL,   -- RECTORAT, DFIP_DES, PSEJA, PSTN, PLSHE
+      nom TEXT NOT NULL,
+      ordre INTEGER NOT NULL DEFAULT 0,
+      created_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (segment, nom),
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    );
+  `);
+  // Amorçage : structure historique du fichier Excel + lignes déjà utilisées par des activités
+  if (db.prepare('SELECT COUNT(*) as c FROM planning_lignes').get().c === 0) {
+    const LIGNES_DEFAUT = {
+      RECTORAT: ["Découpage de l'année"],
+      DFIP_DES: ['Inscriptions', 'Cours transversaux', 'Réinscriptions', 'Demandes de dérogation', 'Formation des tuteurs', 'Évaluations SEJA', 'Évaluations STN', 'Évaluations LSHE'],
+      PSEJA: ['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2'],
+      PSTN: ['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2'],
+      PLSHE: ['Licence 1', 'Licence 2', 'Licence 3', 'Master 1', 'Master 2'],
+    };
+    const ins = db.prepare('INSERT OR IGNORE INTO planning_lignes (segment, nom, ordre) VALUES (?, ?, ?)');
+    for (const [seg, noms] of Object.entries(LIGNES_DEFAUT)) noms.forEach((n, i) => ins.run(seg, n, i));
+    db.prepare(`SELECT DISTINCT segment, ligne FROM planning_activites`).all()
+      .forEach(a => ins.run(a.segment, a.ligne, 99));
+  }
 }
 
 module.exports = { getDb };

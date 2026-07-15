@@ -3,7 +3,20 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('crypto').randomUUID ? { v4: () => require('crypto').randomUUID() } : require('crypto');
 const { getDb } = require('../db/connection');
-const { JWT_SECRET, JWT_EXPIRES_IN, ROLE_LABELS } = require('../config');
+const { JWT_SECRET, JWT_EXPIRES_IN, ROLE_LABELS, ROLE_ALIAS } = require('../config');
+
+/* Le front reçoit le rôle EFFECTIF (alias appliqué : Coordonnateur → Admin,
+   DES → Directeur) pour que tous ses contrôles d'accès fonctionnent,
+   et le libellé du rôle réel pour l'affichage. */
+function userPourFront(user) {
+  const { password_hash, ...safe } = user;
+  return {
+    ...safe,
+    role: ROLE_ALIAS[user.role] || user.role,
+    role_reel: user.role,
+    role_label: ROLE_LABELS[user.role] || user.role,
+  };
+}
 const { auth } = require('../middleware/auth');
 
 const router = express.Router();
@@ -12,17 +25,38 @@ function generateJti() {
   return require('crypto').randomUUID();
 }
 
+/* Anti-force-brute : 8 échecs sur un même couple IP+email en 15 min → blocage 15 min.
+   (en mémoire — remis à zéro au redémarrage, suffisant contre les attaques en ligne) */
+const tentatives = new Map(); // clé "ip|email" → { count, until }
+const FENETRE_MS = 15 * 60 * 1000, MAX_ECHECS = 8;
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of tentatives) if (now > v.until) tentatives.delete(k);
+}, 10 * 60 * 1000).unref();
+
 // POST /api/auth/login
 router.post('/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email et mot de passe requis' });
 
+  const ipClient = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  const cle = `${ipClient}|${String(email).toLowerCase().trim()}`;
+  const essai = tentatives.get(cle);
+  if (essai && essai.count >= MAX_ECHECS && Date.now() < essai.until) {
+    return res.status(429).json({ error: 'Trop de tentatives. Réessayez dans quelques minutes.' });
+  }
+
   const db = getDb();
   const user = db.prepare('SELECT * FROM users WHERE email = ? AND actif = 1').get(email.toLowerCase().trim());
 
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
+    const cur = tentatives.get(cle) || { count: 0, until: 0 };
+    tentatives.set(cle, { count: cur.count + 1, until: Date.now() + FENETRE_MS });
+    db.prepare('INSERT INTO audit_logs (user_id, action, module, detail, ip_address) VALUES (?, ?, ?, ?, ?)')
+      .run(user?.id || null, 'LOGIN_FAILED', 'AUTH', String(email).slice(0, 120), ipClient);
     return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
   }
+  tentatives.delete(cle);
 
   const jti = generateJti();
   const token = jwt.sign(
@@ -42,10 +76,9 @@ router.post('/login', (req, res) => {
   db.prepare(`INSERT INTO audit_logs (user_id, action, module, ip_address) VALUES (?, ?, ?, ?)`)
     .run(user.id, 'LOGIN', 'AUTH', ip);
 
-  const { password_hash, ...userSafe } = user;
   res.json({
     token,
-    user: { ...userSafe, role_label: ROLE_LABELS[user.role] || user.role },
+    user: userPourFront(user),
     must_change_password: !!user.must_change_password
   });
 });
@@ -102,11 +135,10 @@ router.get('/me', auth, (req, res) => {
     WHERE u.id = ?
   `).get(req.user.id);
 
-  const { password_hash, ...userSafe } = user;
   const nonLues = db.prepare('SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND lue = 0').get(req.user.id);
 
   res.json({
-    user: { ...userSafe, role_label: ROLE_LABELS[user.role] || user.role },
+    user: userPourFront(user),
     notifications_non_lues: nonLues.cnt
   });
 });

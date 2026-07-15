@@ -193,20 +193,35 @@ export function BandeauVacances({ vacances, feries, tl }) {
   );
 }
 
-function ModalActivite({ annee, canSegments, defaultSegment, onClose, onCreated }) {
+function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjouterLigne, onLignesChanged, onClose, onCreated }) {
   const [form, setForm] = useState({
     segment: (defaultSegment && canSegments.includes(defaultSegment) ? defaultSegment : canSegments[0]) || 'DFIP_DES',
     ligne: '', libelle: '', date_debut: '', date_fin: '',
     type: '', sous_type: 'EXAMEN',
   });
   const [loading, setLoading] = useState(false);
-  const lignes = LIGNES_DEFAUT[form.segment] || [];
+  const [ajoutLigne, setAjoutLigne] = useState(false);
+  const [nouvelleLigne, setNouvelleLigne] = useState('');
+  const lignes = lignesMap[form.segment] || LIGNES_DEFAUT[form.segment] || [];
+  const estRectorat = form.segment === 'RECTORAT';
+  const termeLigne = estRectorat ? 'Ligne' : 'Niveau'; // « Ligne » pour le Rectorat, « Niveau » ailleurs
+
+  async function ajouterLigne() {
+    if (!nouvelleLigne.trim()) return;
+    try {
+      await api.post('/planning/lignes', { segment: form.segment, nom: nouvelleLigne.trim() });
+      toast.success(`${termeLigne} « ${nouvelleLigne.trim()} » ajouté(e) au segment`);
+      setForm(f => ({ ...f, ligne: nouvelleLigne.trim() }));
+      setNouvelleLigne(''); setAjoutLigne(false);
+      onLignesChanged();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
 
   async function submit(e) {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/planning', { ...form, annee_id: annee.id });
+      await api.post('/planning', { ...form, type: estRectorat ? '' : form.type, annee_id: annee.id });
       toast.success('Activité ajoutée au planning');
       onCreated(); onClose();
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
@@ -223,23 +238,40 @@ function ModalActivite({ annee, canSegments, defaultSegment, onClose, onCreated 
         <form onSubmit={submit} className="p-5 space-y-4">
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Segment *</label>
-            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value, ligne: '' }))}>
+            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value, ligne: '', type: e.target.value === 'RECTORAT' ? '' : f.type }))}>
               {canSegments.map(s => <option key={s} value={s}>{SEGMENTS[s].label}</option>)}
             </select>
           </div>
           <div>
-            <label className="text-sm font-medium text-slate-700 block mb-1">Ligne *</label>
-            <input list="lignes-sugg" value={form.ligne} onChange={e => setForm(f => ({ ...f, ligne: e.target.value }))}
-              placeholder="Ex: Licence 1, Cours transversaux..." required />
-            <datalist id="lignes-sugg">
-              {lignes.map(l => <option key={l} value={l} />)}
-            </datalist>
+            <label className="text-sm font-medium text-slate-700 block mb-1">{termeLigne} *</label>
+            <div className="flex gap-2">
+              <select value={form.ligne} onChange={e => setForm(f => ({ ...f, ligne: e.target.value }))} required className="flex-1">
+                <option value="">— Choisir un {termeLigne.toLowerCase()} —</option>
+                {lignes.map(l => <option key={l} value={l}>{l}</option>)}
+              </select>
+              {peutAjouterLigne && (
+                <button type="button" onClick={() => setAjoutLigne(v => !v)}
+                  className="btn-secondary !px-3 shrink-0" title={`Ajouter un ${termeLigne.toLowerCase()} à ce segment (Directeur DFIP)`}>
+                  +
+                </button>
+              )}
+            </div>
+            {ajoutLigne && (
+              <div className="flex gap-2 mt-2">
+                <input value={nouvelleLigne} onChange={e => setNouvelleLigne(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); ajouterLigne(); } }}
+                  placeholder={`Nouveau ${termeLigne.toLowerCase()} pour ${form.segment.replace('_', ' & ')}...`}
+                  className="flex-1 !py-1.5 !text-sm" autoFocus />
+                <button type="button" onClick={ajouterLigne} className="btn-primary !py-1.5 !px-3 !text-sm shrink-0">Ajouter</button>
+              </div>
+            )}
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Libellé de la barre *</label>
             <input value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))}
               placeholder="Ex: S1, S1N (rattrapage), Réinscriptions..." required />
           </div>
+          {!estRectorat && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Type d'activité</label>
@@ -259,7 +291,8 @@ function ModalActivite({ annee, canSegments, defaultSegment, onClose, onCreated 
               </div>
             )}
           </div>
-          {form.type && (
+          )}
+          {!estRectorat && form.type && (
             <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl p-2.5 -mt-1">
               🔗 Cette activité sera <strong>automatiquement affichée dans le module {form.type === 'TUTORAT' ? 'Tutorat' : 'Évaluations'}</strong> —
               pas de nouvelle saisie : le suivi se fera directement sur l'entrée liée.
@@ -293,6 +326,7 @@ export default function PlanningAnnuel() {
   const [vacances, setVacances] = useState([]);
   const [feries, setFeries] = useState([]);
   const [segmentActif, setSegmentActif] = useState(null); // null = vue globale (par défaut)
+  const [lignesSeg, setLignesSeg] = useState([]);         // lignes/niveaux paramétrables par segment
   const [zoom, setZoom] = useState({ mode: 'ANNEE' });
   const [modal, setModal] = useState(false);
   const [modalAnnee, setModalAnnee] = useState(false);
@@ -315,8 +349,9 @@ export default function PlanningAnnuel() {
       api.get(`/planning?annee_id=${anneeId}`),
       api.get(`/calendrier-academique/vacances?annee_id=${anneeId}`),
       api.get('/calendrier-academique/feries'),
-    ]).then(([p, v, f]) => {
-      setActivites(p.data); setVacances(v.data); setFeries(f.data);
+      api.get('/planning/lignes').catch(() => ({ data: [] })),
+    ]).then(([p, v, f, l]) => {
+      setActivites(p.data); setVacances(v.data); setFeries(f.data); setLignesSeg(l.data);
     }).finally(() => setLoading(false));
   }
   useEffect(load, [anneeId]);
@@ -346,6 +381,14 @@ export default function PlanningAnnuel() {
   }, []);
 
   const estDirecteur = user?.role === 'DIRECTEUR';
+  const peutAjouterLigne = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+
+  // Lignes paramétrées, groupées par segment (source : table planning_lignes)
+  const lignesMap = useMemo(() => {
+    const m = {};
+    lignesSeg.forEach(l => { (m[l.segment] = m[l.segment] || []).push(l.nom); });
+    return m;
+  }, [lignesSeg]);
   const canSegments = perimetre.creation;                 // segments où ce profil peut créer
   const canEdit = canSegments.length > 0 || estDirecteur; // peut agir sur au moins un segment
   const segmentsVisibles = perimetre.visibles;
@@ -514,7 +557,7 @@ export default function PlanningAnnuel() {
               .map(([key, seg]) => {
               const focus = segmentActif === key;
               const actsSeg = activites.filter(a => a.segment === key);
-              const lignes = [...new Set([...(LIGNES_DEFAUT[key] || []), ...actsSeg.map(a => a.ligne)])];
+              const lignes = [...new Set([...(lignesMap[key] || LIGNES_DEFAUT[key] || []), ...actsSeg.map(a => a.ligne)])];
               return (
                 <div key={key} className="border-b border-slate-100 last:border-0">
                   {/* Bandeau segment (même style que les modules Tutorat / Évaluations) */}
@@ -579,7 +622,12 @@ export default function PlanningAnnuel() {
         {canEdit && ' Cliquez sur une barre pour la supprimer.'}
       </p>
 
-      {modal && annee && <ModalActivite annee={annee} canSegments={canSegments} defaultSegment={segmentActif} onClose={() => setModal(false)} onCreated={load} />}
+      {modal && annee && (
+        <ModalActivite annee={annee} canSegments={canSegments} defaultSegment={segmentActif}
+          lignesMap={lignesMap} peutAjouterLigne={peutAjouterLigne}
+          onLignesChanged={() => api.get('/planning/lignes').then(r => setLignesSeg(r.data)).catch(() => {})}
+          onClose={() => setModal(false)} onCreated={load} />
+      )}
       {modalAnnee && (
         <ModalAnnee onClose={() => setModalAnnee(false)} onCreated={() => {
           api.get('/dashboard/annees').then(r => {
@@ -593,6 +641,7 @@ export default function PlanningAnnuel() {
           activite={detail}
           canEdit={peutEditerActivite(detail)}
           estDirecteur={estDirecteur}
+          lignesMap={lignesMap}
           onClose={() => setDetail(null)}
           onChanged={() => { setDetail(null); load(); loadDemandes(); }}
         />
@@ -637,8 +686,10 @@ function ModalAnnee({ onClose, onCreated }) {
 }
 
 /* Popup de détails d'une activité : consultation + édition + suppression (validées par le Directeur DFIP) */
-function ModalDetail({ activite: a, canEdit, estDirecteur, onClose, onChanged }) {
+function ModalDetail({ activite: a, canEdit, estDirecteur, lignesMap = {}, onClose, onChanged }) {
   const seg = SEGMENTS[a.segment];
+  const termeLigne = a.segment === 'RECTORAT' ? 'Ligne' : 'Niveau';
+  const lignesDispo = [...new Set([...(lignesMap[a.segment] || LIGNES_DEFAUT[a.segment] || []), a.ligne])];
   const [form, setForm] = useState({ ligne: a.ligne, libelle: a.libelle, date_debut: a.date_debut, date_fin: a.date_fin });
   const [loading, setLoading] = useState(false);
   const modifie = form.ligne !== a.ligne || form.libelle !== a.libelle || form.date_debut !== a.date_debut || form.date_fin !== a.date_fin;
@@ -703,8 +754,10 @@ function ModalDetail({ activite: a, canEdit, estDirecteur, onClose, onChanged })
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-medium text-slate-600 block mb-1">Ligne</label>
-                    <input value={form.ligne} onChange={e => setForm(f => ({ ...f, ligne: e.target.value }))} className="!py-1.5 !text-sm" />
+                    <label className="text-xs font-medium text-slate-600 block mb-1">{termeLigne}</label>
+                    <select value={form.ligne} onChange={e => setForm(f => ({ ...f, ligne: e.target.value }))} className="!py-1.5 !text-sm">
+                      {lignesDispo.map(l => <option key={l} value={l}>{l}</option>)}
+                    </select>
                   </div>
                   <div>
                     <label className="text-xs font-medium text-slate-600 block mb-1">Libellé</label>
