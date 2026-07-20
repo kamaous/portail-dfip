@@ -266,6 +266,60 @@ export function BarreZoom({ domaine, fenetre, setFenetre, reperes = [], onReset 
   );
 }
 
+/* Barre de zoom VERTICALE (à droite du calendrier) : rapprocher les poignées
+   agrandit la hauteur des lignes, glisser le bloc fait défiler verticalement.
+   L'en-tête des dates et la 1re colonne restent figés pendant l'opération. */
+export function BarreZoomV({ fen, setFen, onReset }) {
+  const piste = useRef(null);
+  const [drag, setDrag] = useState(null); // { type: 'H'|'B'|'PAN', y0, f0 }
+  const MIN = 0.2; // fenêtre minimale = 20 % du contenu (zoom max ×5)
+
+  useEffect(() => {
+    if (!drag) return;
+    const move = (e) => {
+      const h = piste.current?.getBoundingClientRect().height || 1;
+      const dv = (e.clientY - drag.y0) / h;
+      let { v0, v1 } = drag.f0;
+      if (drag.type === 'PAN') {
+        const w = v1 - v0;
+        v0 = Math.max(0, Math.min(1 - w, v0 + dv)); v1 = v0 + w;
+      } else if (drag.type === 'H') {
+        v0 = Math.max(0, Math.min(v1 - MIN, v0 + dv));
+      } else {
+        v1 = Math.min(1, Math.max(v0 + MIN, v1 + dv));
+      }
+      setFen({ v0, v1 });
+    };
+    const up = () => setDrag(null);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  }, [drag, setFen]);
+
+  const prendre = (type) => (e) => { e.preventDefault(); e.stopPropagation(); setDrag({ type, y0: e.clientY, f0: { ...fen } }); };
+  const zoom = Math.round((1 / (fen.v1 - fen.v0)) * 10) / 10;
+
+  return (
+    <div className="w-9 shrink-0 flex flex-col items-center gap-1 select-none">
+      <span className="text-[9px] font-bold text-slate-400" title="Zoom vertical (hauteur des lignes)">↕ ×{zoom}</span>
+      <div ref={piste} className="relative flex-1 w-4 bg-slate-100 rounded-full touch-none min-h-32"
+        onDoubleClick={onReset} title="Zoom vertical : rapprochez les poignées pour agrandir les lignes · double-clic = réinitialiser">
+        <div className="absolute inset-x-0 bg-[#1e3a5f]/15 border-y-2 border-[#1e3a5f]/40 cursor-grab active:cursor-grabbing rounded"
+          style={{ top: `${fen.v0 * 100}%`, height: `${Math.max((fen.v1 - fen.v0) * 100, 2)}%` }}
+          onPointerDown={prendre('PAN')} />
+        <div className="absolute inset-x-0 h-3 bg-[#1e3a5f] rounded-sm cursor-ns-resize z-10 flex items-center justify-center"
+          style={{ top: `calc(${fen.v0 * 100}% - 6px)` }} onPointerDown={prendre('H')} title="Poignée haute">
+          <span className="h-0.5 w-2.5 bg-white/70 rounded" />
+        </div>
+        <div className="absolute inset-x-0 h-3 bg-[#1e3a5f] rounded-sm cursor-ns-resize z-10 flex items-center justify-center"
+          style={{ top: `calc(${fen.v1 * 100}% - 6px)` }} onPointerDown={prendre('B')} title="Poignée basse">
+          <span className="h-0.5 w-2.5 bg-white/70 rounded" />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* Bandes verticales vacances + traits fériés, répétés dans chaque piste */
 export function Overlays({ vacances, feries, tl }) {
   return (
@@ -545,6 +599,36 @@ export default function PlanningAnnuel() {
 
   const tl = useTimelineFenetre(fenetre);
 
+  // Zoom VERTICAL : fenêtre [v0, v1] (fractions) → facteur de hauteur des lignes (jusqu'à ×5)
+  const [fenV, setFenV] = useState({ v0: 0, v1: 1 });
+  const facteurV = 1 / (fenV.v1 - fenV.v0);
+  const boardRef = useRef(null);
+  const majDepuisBarre = useRef(false);
+
+  // La position du bloc de la barre verticale pilote le défilement du tableau…
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const w = fenV.v1 - fenV.v0;
+    majDepuisBarre.current = true;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    el.scrollTop = w >= 1 ? el.scrollTop : (fenV.v0 / (1 - w)) * Math.max(0, maxScroll);
+    const t = setTimeout(() => { majDepuisBarre.current = false; }, 60);
+    return () => clearTimeout(t);
+  }, [fenV]);
+
+  // …et le défilement du tableau repositionne le bloc de la barre
+  function onScrollBoard(e) {
+    if (majDepuisBarre.current) return;
+    const el = e.currentTarget;
+    const w = fenV.v1 - fenV.v0;
+    if (w >= 1) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) return;
+    const v0 = (el.scrollTop / maxScroll) * (1 - w);
+    setFenV({ v0, v1: v0 + w });
+  }
+
   useEffect(() => {
     api.get('/dashboard/annees').then(r => {
       setAnnees(r.data);
@@ -764,7 +848,9 @@ export default function PlanningAnnuel() {
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       ) : (
-        <div className="card !p-0 overflow-x-auto nav-scroll">
+        /* Tableau (défilement H+V, en-tête et 1re colonne figés) + barre de zoom VERTICALE */
+        <div className="flex items-stretch gap-2">
+        <div ref={boardRef} onScroll={onScrollBoard} className="card !p-0 overflow-auto nav-scroll max-h-[72vh] flex-1">
           <div className="min-w-[1100px]">
             {/* En-tête des mois — FIGÉ en haut, coin figé à gauche */}
             <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200">
@@ -799,10 +885,11 @@ export default function PlanningAnnuel() {
                     const barres = actsSeg.filter(a => a.ligne === ligne);
                     return (
                       <div key={ligne} className="flex border-t border-slate-50">
-                        <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 sticky left-0 bg-white z-30 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
+                        <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 sticky left-0 bg-white z-30 flex items-center ${focus ? 'text-sm font-medium' : 'text-xs'}`} title={ligne}>
                           {ligne}
                         </div>
-                        <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
+                        {/* Hauteur pilotée par le zoom vertical */}
+                        <div className="flex-1 relative" style={{ height: Math.round((focus ? 56 : 36) * facteurV) }}>
                           <FondGrille tl={tl} />
                           {/* Barres d'activité */}
                           {barres.map(a => {
@@ -842,6 +929,8 @@ export default function PlanningAnnuel() {
               </div>
             )}
           </div>
+        </div>
+        <BarreZoomV fen={fenV} setFen={setFenV} onReset={() => setFenV({ v0: 0, v1: 1 })} />
         </div>
       )}
 
