@@ -746,6 +746,19 @@ export default function PlanningAnnuel() {
         </div>
       )}
 
+      {/* Barre de zoom continu (poignées + défilement), EN HAUT du calendrier */}
+      <BarreZoom
+        domaine={domaine} fenetre={fenetre} setFenetre={setFenetre}
+        onReset={() => setFenetre(fenetreDefaut)}
+        reperes={[
+          ...activites.map(a => ({
+            t0: Date.parse(a.date_debut), t1: Date.parse(a.date_fin) + JOUR_MS,
+            color: (SEGMENTS[a.segment] || SEGMENTS.RECTORAT).color,
+          })),
+          ...vacances.map(v => ({ t0: Date.parse(v.date_debut), t1: Date.parse(v.date_fin) + JOUR_MS, color: '#ef4444' })),
+        ]}
+      />
+
       {loading ? (
         <div className="flex items-center justify-center h-40">
           <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
@@ -831,19 +844,6 @@ export default function PlanningAnnuel() {
           </div>
         </div>
       )}
-
-      {/* Barre de zoom continu (poignées + défilement), sous le calendrier */}
-      <BarreZoom
-        domaine={domaine} fenetre={fenetre} setFenetre={setFenetre}
-        onReset={() => setFenetre(fenetreDefaut)}
-        reperes={[
-          ...activites.map(a => ({
-            t0: Date.parse(a.date_debut), t1: Date.parse(a.date_fin) + JOUR_MS,
-            color: (SEGMENTS[a.segment] || SEGMENTS.RECTORAT).color,
-          })),
-          ...vacances.map(v => ({ t0: Date.parse(v.date_debut), t1: Date.parse(v.date_fin) + JOUR_MS, color: '#ef4444' })),
-        ]}
-      />
 
       <p className="text-xs text-slate-400">
         💡 Les bandes rouges = vacances · les colonnes sombres = jours fériés (gérés dans « Fériés & Vacances »).
