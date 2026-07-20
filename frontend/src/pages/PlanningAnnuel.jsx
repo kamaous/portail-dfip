@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, GanttChartSquare, LayoutGrid } from 'lucide-react';
@@ -125,6 +125,143 @@ export function ZoomBar({ zoom, setZoom, libelle }) {
       </select>
       <button disabled={!enMois || zoom.mois >= 11} onClick={() => setZoom({ mode: 'MOIS', mois: zoom.mois + 1 })}
         className="px-2 py-1.5 rounded-lg text-xs border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-30">▶</button>
+    </div>
+  );
+}
+
+/* ===== ZOOM TEMPOREL CONTINU (façon Timeline Zoom Bar de Premiere Pro) =====
+   La fenêtre visible [t0, t1] (en ms) glisse et se resserre librement dans un
+   domaine de 3 années académiques. L'échelle s'adapte au niveau de zoom :
+   années → mois → semaines → jours. */
+const JOUR_MS = 86400000;
+
+export function useTimelineFenetre(fenetre) {
+  return useMemo(() => {
+    const start = new Date(fenetre.t0), end = new Date(fenetre.t1);
+    const total = fenetre.t1 - fenetre.t0;
+    const jours = total / JOUR_MS;
+    const units = [];
+    const push = (d, n, label, sub, weekend) => {
+      const dd = Math.max(+d, fenetre.t0), nn = Math.min(+n, fenetre.t1);
+      if (nn > dd) units.push({ label, sub, weekend, left: ((dd - fenetre.t0) / total) * 100, width: ((nn - dd) / total) * 100 });
+    };
+    if (jours > 550) {
+      // Échelle ANNÉES
+      for (let y = start.getFullYear(); y <= end.getFullYear(); y++) {
+        push(new Date(y, 0, 1), new Date(y + 1, 0, 1), String(y));
+      }
+    } else if (jours > 110) {
+      // Échelle MOIS
+      let d = new Date(start.getFullYear(), start.getMonth(), 1);
+      while (+d < fenetre.t1) {
+        const n = new Date(d.getFullYear(), d.getMonth() + 1, 1);
+        push(d, n, `${MOIS[d.getMonth()]} ${String(d.getFullYear()).slice(2)}`);
+        d = n;
+      }
+    } else if (jours > 36) {
+      // Échelle SEMAINES (départ lundi)
+      const d0 = new Date(start); d0.setHours(0, 0, 0, 0);
+      d0.setDate(d0.getDate() - ((d0.getDay() + 6) % 7));
+      for (let d = new Date(d0); +d < fenetre.t1; d.setDate(d.getDate() + 7)) {
+        const n = new Date(d); n.setDate(d.getDate() + 7);
+        push(new Date(d), n, `${d.getDate()} ${MOIS[d.getMonth()]}`);
+      }
+    } else {
+      // Échelle JOURS
+      const J = ['D', 'L', 'M', 'M', 'J', 'V', 'S'];
+      const d0 = new Date(start); d0.setHours(0, 0, 0, 0);
+      for (let d = new Date(d0); +d < fenetre.t1; d.setDate(d.getDate() + 1)) {
+        const n = new Date(d); n.setDate(d.getDate() + 1);
+        push(new Date(d), n, String(d.getDate()), J[d.getDay()], d.getDay() === 0 || d.getDay() === 6);
+      }
+    }
+    const pctRaw = (s) => ((Date.parse(s) - fenetre.t0) / total) * 100;
+    const pct = (s) => Math.max(0, Math.min(100, pctRaw(s)));
+    return { start, end, months: units, units, pct, pctRaw, mode: jours <= 36 ? 'MOIS' : 'ANNEE', jours };
+  }, [fenetre.t0, fenetre.t1]);
+}
+
+/* Barre de zoom à deux poignées : rapprocher = zoomer, écarter = dézoomer,
+   glisser le bloc central = faire défiler la période sans changer le zoom. */
+export function BarreZoom({ domaine, fenetre, setFenetre, reperes = [], onReset }) {
+  const piste = useRef(null);
+  const [drag, setDrag] = useState(null); // { type: 'G'|'D'|'PAN', x0, f0 }
+  const MIN = 7 * JOUR_MS; // fenêtre minimale : une semaine
+  const span = domaine.t1 - domaine.t0;
+  const pct = (t) => ((t - domaine.t0) / span) * 100;
+
+  useEffect(() => {
+    if (!drag) return;
+    const move = (e) => {
+      const largeur = piste.current?.getBoundingClientRect().width || 1;
+      const dt = ((e.clientX - drag.x0) / largeur) * span;
+      let { t0, t1 } = drag.f0;
+      if (drag.type === 'PAN') {
+        const w = t1 - t0;
+        t0 = Math.max(domaine.t0, Math.min(domaine.t1 - w, t0 + dt));
+        t1 = t0 + w;
+      } else if (drag.type === 'G') {
+        t0 = Math.max(domaine.t0, Math.min(t1 - MIN, t0 + dt));
+      } else {
+        t1 = Math.min(domaine.t1, Math.max(t0 + MIN, t1 + dt));
+      }
+      setFenetre({ t0, t1 });
+    };
+    const up = () => setDrag(null);
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+    return () => { window.removeEventListener('pointermove', move); window.removeEventListener('pointerup', up); };
+  }, [drag, domaine.t0, domaine.t1, span, setFenetre]);
+
+  const prendre = (type) => (e) => { e.preventDefault(); e.stopPropagation(); setDrag({ type, x0: e.clientX, f0: { ...fenetre } }); };
+  const fmt = (t) => new Date(t).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+  const niveaux = fenetre.t1 - fenetre.t0 > 550 * JOUR_MS ? 'Années' : fenetre.t1 - fenetre.t0 > 110 * JOUR_MS ? 'Mois' : fenetre.t1 - fenetre.t0 > 36 * JOUR_MS ? 'Semaines' : 'Jours';
+
+  return (
+    <div className="card !py-3 select-none">
+      <div className="flex items-center gap-3 mb-2 flex-wrap text-xs">
+        <span className="font-bold text-slate-500 uppercase tracking-wide">🔍 Zoom temporel</span>
+        <span className="text-slate-600"><strong>{fmt(fenetre.t0)}</strong> → <strong>{fmt(fenetre.t1)}</strong></span>
+        <span className="badge bg-blue-100 text-blue-700 text-[10px]">Échelle : {niveaux}</span>
+        <span className="text-slate-400 hidden sm:inline">Rapprochez les poignées pour zoomer · glissez le bloc pour faire défiler</span>
+        <button onClick={onReset} className="ml-auto text-blue-600 hover:underline">Année active</button>
+      </div>
+      <div ref={piste} className="relative h-9 bg-slate-100 rounded-lg overflow-hidden touch-none"
+        onDoubleClick={onReset} title="Double-clic : revenir à l'année active">
+        {/* Graduations des années du domaine */}
+        {(() => {
+          const out = [];
+          for (let y = new Date(domaine.t0).getFullYear(); y <= new Date(domaine.t1).getFullYear(); y++) {
+            const l = pct(+new Date(y, 0, 1));
+            if (l > 0 && l < 100) out.push(
+              <div key={y} className="absolute inset-y-0 border-l border-slate-300 pointer-events-none" style={{ left: `${l}%` }}>
+                <span className="absolute top-0 left-1 text-[8px] text-slate-400">{y}</span>
+              </div>
+            );
+          }
+          return out;
+        })()}
+        {/* Repères des activités et vacances (mini-aperçu) */}
+        {reperes.map((r, i) => {
+          const l = pct(r.t0), w = Math.max(((r.t1 - r.t0) / span) * 100, 0.3);
+          if (l >= 100 || l + w <= 0) return null;
+          return <div key={i} className="absolute bottom-1 h-1.5 rounded-full pointer-events-none opacity-80"
+            style={{ left: `${Math.max(0, l)}%`, width: `${w}%`, background: r.color }} />;
+        })}
+        {/* Fenêtre visible (glisser = défiler) */}
+        <div className="absolute inset-y-0 bg-[#1e3a5f]/15 border-y-2 border-[#1e3a5f]/40 cursor-grab active:cursor-grabbing"
+          style={{ left: `${pct(fenetre.t0)}%`, width: `${Math.max(pct(fenetre.t1) - pct(fenetre.t0), 0.5)}%` }}
+          onPointerDown={prendre('PAN')} />
+        {/* Poignées gauche / droite */}
+        <div className="absolute inset-y-0 w-3 bg-[#1e3a5f] rounded-sm cursor-ew-resize flex items-center justify-center z-10"
+          style={{ left: `calc(${pct(fenetre.t0)}% - 6px)` }} onPointerDown={prendre('G')} title="Poignée de début">
+          <span className="w-0.5 h-4 bg-white/70 rounded" />
+        </div>
+        <div className="absolute inset-y-0 w-3 bg-[#1e3a5f] rounded-sm cursor-ew-resize flex items-center justify-center z-10"
+          style={{ left: `calc(${pct(fenetre.t1)}% - 6px)` }} onPointerDown={prendre('D')} title="Poignée de fin">
+          <span className="w-0.5 h-4 bg-white/70 rounded" />
+        </div>
+      </div>
     </div>
   );
 }
@@ -256,6 +393,7 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
   const [nouvelleLigne, setNouvelleLigne] = useState('');
   const lignes = lignesMap[form.segment] || LIGNES_DEFAUT[form.segment] || [];
   const estRectorat = form.segment === 'RECTORAT';
+  const sansType = ['RECTORAT', 'DFIP_DES'].includes(form.segment); // pas de type d'activité pour ces segments
   const termeLigne = estRectorat ? 'Ligne' : 'Niveau'; // « Ligne » pour le Rectorat, « Niveau » ailleurs
 
   async function ajouterLigne() {
@@ -273,7 +411,7 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/planning', { ...form, type: estRectorat ? '' : form.type, annee_id: annee.id });
+      await api.post('/planning', { ...form, type: sansType ? '' : form.type, annee_id: annee.id });
       toast.success('Activité ajoutée au planning');
       onCreated(); onClose();
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
@@ -290,7 +428,7 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
         <form onSubmit={submit} className="p-5 space-y-4">
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Segment *</label>
-            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value, ligne: '', libelle: '', type: e.target.value === 'RECTORAT' ? '' : f.type }))}>
+            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value, ligne: '', libelle: '', type: ['RECTORAT', 'DFIP_DES'].includes(e.target.value) ? '' : f.type }))}>
               {canSegments.map(s => <option key={s} value={s}>{SEGMENTS[s].label}</option>)}
             </select>
           </div>
@@ -318,8 +456,8 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
               </div>
             )}
           </div>
-          {/* TYPE D'ACTIVITÉ (avant le libellé) */}
-          {!estRectorat && (
+          {/* TYPE D'ACTIVITÉ (avant le libellé) — pas de type pour RECTORAT ni DFIP & DES */}
+          {!sansType && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Type d'activité</label>
@@ -340,7 +478,7 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
             )}
           </div>
           )}
-          {!estRectorat && form.type && (
+          {!sansType && form.type && (
             <p className="text-xs text-blue-700 bg-blue-50 border border-blue-100 rounded-xl p-2.5 -mt-1">
               🔗 Cette activité sera <strong>automatiquement affichée dans le module {form.type === 'TUTORAT' ? 'Tutorat' : 'Évaluations'}</strong> —
               pas de nouvelle saisie : le suivi se fera directement sur l'entrée liée.
@@ -351,7 +489,7 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Libellé de la barre *</label>
             {(() => {
-              const opts = estRectorat ? null : libellesPossibles(form.type, form.ligne);
+              const opts = sansType ? null : libellesPossibles(form.type, form.ligne);
               return opts ? (
                 <select value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))} required>
                   <option value="">— Choisir un libellé —</option>
@@ -387,13 +525,25 @@ export default function PlanningAnnuel() {
   const [feries, setFeries] = useState([]);
   const [segmentActif, setSegmentActif] = useState(null); // null = vue globale (par défaut)
   const [lignesSeg, setLignesSeg] = useState([]);         // lignes/niveaux paramétrables par segment
-  const [zoom, setZoom] = useState({ mode: 'ANNEE' });
   const [modal, setModal] = useState(false);
   const [modalAnnee, setModalAnnee] = useState(false);
   const [loading, setLoading] = useState(true);
 
   const annee = annees.find(a => a.id === anneeId);
-  const tl = useTimeline(annee?.libelle || '', zoom);
+
+  // Zoom temporel continu : domaine = 3 années académiques autour de l'année choisie ;
+  // fenêtre par défaut = l'année académique active (nov → oct)
+  const anneeBase = parseInt(annee?.libelle) || new Date().getFullYear();
+  const domaine = useMemo(() => ({
+    t0: +new Date(anneeBase - 1, 10, 1), t1: +new Date(anneeBase + 2, 10, 1),
+  }), [anneeBase]);
+  const fenetreDefaut = useMemo(() => ({
+    t0: +new Date(anneeBase, 10, 1), t1: +new Date(anneeBase + 1, 10, 1),
+  }), [anneeBase]);
+  const [fenetre, setFenetre] = useState(fenetreDefaut);
+  useEffect(() => { setFenetre(fenetreDefaut); }, [fenetreDefaut]);
+
+  const tl = useTimelineFenetre(fenetre);
 
   useEffect(() => {
     api.get('/dashboard/annees').then(r => {
@@ -417,13 +567,16 @@ export default function PlanningAnnuel() {
   useEffect(load, [anneeId]);
 
   // Matérialise les fériés récurrents dans la plage de la timeline
+  // (toutes les années couvertes par la fenêtre de zoom, pas seulement les bornes)
   const feriesRange = useMemo(() => {
     if (!annee) return [];
+    const annees_ = [];
+    for (let y = tl.start.getFullYear(); y <= tl.end.getFullYear(); y++) annees_.push(y);
     const out = [];
     for (const f of feries) {
       if (f.recurrent) {
         const mmdd = f.date.slice(5);
-        [tl.start.getFullYear(), tl.end.getFullYear()].forEach(y => {
+        annees_.forEach(y => {
           const d = `${y}-${mmdd}`;
           if (new Date(d) >= tl.start && new Date(d) <= tl.end) out.push({ ...f, date: d });
         });
@@ -539,8 +692,8 @@ export default function PlanningAnnuel() {
               </button>
             );
           })}
-          <div className="ml-auto flex items-center gap-2 flex-wrap">
-            <ZoomBar zoom={zoom} setZoom={setZoom} libelle={annee?.libelle || ''} />
+          <div className="ml-auto flex items-center gap-2 flex-wrap text-xs text-slate-400">
+            <span>🔍 Zoom continu : barre sous le planning</span>
           </div>
         </div>
         <div className="flex items-center gap-4 text-xs text-slate-500 mt-2.5 pt-2.5 border-t border-slate-100">
@@ -679,9 +832,22 @@ export default function PlanningAnnuel() {
         </div>
       )}
 
+      {/* Barre de zoom continu (poignées + défilement), sous le calendrier */}
+      <BarreZoom
+        domaine={domaine} fenetre={fenetre} setFenetre={setFenetre}
+        onReset={() => setFenetre(fenetreDefaut)}
+        reperes={[
+          ...activites.map(a => ({
+            t0: Date.parse(a.date_debut), t1: Date.parse(a.date_fin) + JOUR_MS,
+            color: (SEGMENTS[a.segment] || SEGMENTS.RECTORAT).color,
+          })),
+          ...vacances.map(v => ({ t0: Date.parse(v.date_debut), t1: Date.parse(v.date_fin) + JOUR_MS, color: '#ef4444' })),
+        ]}
+      />
+
       <p className="text-xs text-slate-400">
-        💡 Les bandes rouges = vacances · les traits rouges = jours fériés (gérés dans « Fériés & Vacances »).
-        {canEdit && ' Cliquez sur une barre pour la supprimer.'}
+        💡 Les bandes rouges = vacances · les colonnes sombres = jours fériés (gérés dans « Fériés & Vacances »).
+        Zoom : rapprochez les poignées de la barre ci-dessus, ou glissez le bloc pour faire défiler la période.
       </p>
 
       {modal && annee && (

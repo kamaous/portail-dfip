@@ -220,7 +220,8 @@ router.post('/', auth, (req, res) => {
     return res.status(400).json({ error: 'Année, segment, ligne, libellé et dates requis' });
   }
   if (!SEGMENTS.includes(segment)) return res.status(400).json({ error: 'Segment invalide' });
-  if (segment === 'RECTORAT') { type = null; sous_type = null; } // le Rectorat n'a pas de type d'activité
+  // Le Rectorat et DFIP & DES n'ont pas de type d'activité
+  if (segment === 'RECTORAT' || segment === 'DFIP_DES') { type = null; sous_type = null; }
   if (date_fin < date_debut) return res.status(400).json({ error: 'La date de fin doit suivre la date de début' });
   if (type && !['TUTORAT', 'EVALUATIONS'].includes(type)) return res.status(400).json({ error: 'Type invalide' });
   if (type === 'EVALUATIONS' && sous_type && !['EXAMEN', 'DEVOIRS'].includes(sous_type)) {
