@@ -15,7 +15,8 @@ const SUIVI_ROLES = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'];
 // consultent et signalent), complétés par le Chef DFE
 const CREATE_ROLES = ['RESPONSABLE_PEDAGOGIQUE', ...SUIVI_ROLES];
 // Délibérations : Directeurs de pôle (leur pôle) + Directeur/Admin
-const DELIB_ROLES = ['RESPONSABLE_POLE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
+// Délibérations : réservées aux Responsables pédagogiques des pôles
+const DELIB_ROLES = ['RESPONSABLE_PEDAGOGIQUE'];
 
 /* ===== Plages d'évaluations définies dans le Planning annuel =====
    Sources (union) : activités TYPÉES « EVALUATIONS » du segment du pôle
@@ -261,11 +262,13 @@ router.put('/:id', auth, (req, res) => {
     }
   }
 
-  // --- Délibérations (Directeurs de pôle, après « Évaluations terminées ») ---
+  // --- Délibérations : SEULS les Responsables pédagogiques des pôles les modifient
+  //     (le Directeur DFIP ne peut intervenir que pour corriger une évaluation déjà délibérée) ---
+  const estRPPole = req.user.role === 'RESPONSABLE_PEDAGOGIQUE' && req.user.pole_id === prev.pole_id;
   const changeDelib = delib_etat !== undefined || date_deliberation !== undefined;
   if (changeDelib) {
-    if (!estDP && !estDirection) {
-      return res.status(403).json({ error: 'Les délibérations sont renseignées par le Directeur de pôle.' });
+    if (!estRPPole && !(estDirection && prev.delib_etat === 'TERMINEE')) {
+      return res.status(403).json({ error: 'Les délibérations sont réservées au Responsable pédagogique du pôle.' });
     }
     if ((etat_eval ?? prev.etat_eval) !== 'EVAL_TERMINEES') {
       return res.status(409).json({ error: 'Les délibérations ne s\'ouvrent qu\'une fois les évaluations terminées.' });

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { LayoutGrid, LogIn } from 'lucide-react';
-import { useTimeline, Overlays, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
+import { useTimeline, OverlaysDevant, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
 
 /* Version PUBLIQUE (lecture seule, sans compte) du planning annuel */
 const SEGMENTS = {
@@ -107,13 +107,15 @@ export default function PlanningPublic() {
         ) : (
           <div className="card !p-0 overflow-x-auto nav-scroll">
             <div className="min-w-[1100px]">
-              <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
-                <div className="w-56 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
+              <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200">
+                <div className="w-56 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200 sticky left-0 bg-white z-40">
                   Segments / Lignes / Niveaux
                 </div>
                 <EnTeteUnites tl={tl} />
               </div>
               <BandeauVacances vacances={data.vacances} feries={feriesRange} tl={tl} />
+              <div className="relative">
+              <OverlaysDevant vacances={data.vacances} feries={feriesRange} tl={tl} left="14rem" />
               {Object.entries(SEGMENTS)
                 .filter(([key]) => !segmentActif || key === segmentActif)
                 .map(([key, seg]) => {
@@ -122,20 +124,19 @@ export default function PlanningPublic() {
                   const focus = segmentActif === key;
                   return (
                     <div key={key} className="border-b border-slate-100 last:border-0">
-                      <div className={`flex items-center gap-2 px-3 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
-                        <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{seg.label}</span>
-                        <span className="text-xs text-slate-400 ml-auto">{acts.length} activité(s)</span>
+                      <div className={`flex items-center gap-2 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
+                        <span className={`font-bold px-3 sticky left-0 z-30 max-w-[70vw] truncate ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }} title={seg.label}>{seg.label}</span>
+                        <span className="text-xs text-slate-400 ml-auto pr-3">{acts.length} activité(s)</span>
                       </div>
                       {lignes.map(ligne => {
                         const barres = acts.filter(a => a.ligne === ligne);
                         return (
                           <div key={ligne} className="flex border-t border-slate-50">
-                            <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
+                            <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 sticky left-0 bg-white z-30 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
                               {ligne}
                             </div>
                             <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                               <FondGrille tl={tl} />
-                              <Overlays vacances={data.vacances} feries={feriesRange} tl={tl} />
                               {barres.map(a => {
                                 const lr = tl.pctRaw(a.date_debut), rr = tl.pctRaw(a.date_fin);
                                 if (rr <= 0 || lr >= 100) return null;
@@ -157,6 +158,7 @@ export default function PlanningPublic() {
                     </div>
                   );
                 })}
+              </div>
             </div>
           </div>
         )}

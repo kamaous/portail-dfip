@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { useMemo } from 'react';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 import PlageDates from '../components/PlageDates';
+import PanneauIncidents from '../components/PanneauIncidents';
 
 /* Configuration des champs d'état — vocabulaire officiel du fichier Tutorat UN-CHK */
 const ENROLEMENT = {
@@ -761,6 +762,9 @@ export default function Tutorat() {
 
       {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
       <PanneauSignalements cibleType="TUTORAT" user={user} />
+
+      {/* Incidents remontés impactant le tutorat */}
+      <PanneauIncidents module="TUTORAT" poles={poles} segment={segment} />
 
       <div className="flex gap-2 flex-wrap items-center">
         {['', 'PAS_DEMARRE', 'PRET', 'EN_COURS', 'TERMINE'].map(s => (

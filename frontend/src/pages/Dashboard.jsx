@@ -49,6 +49,8 @@ const ROLE_LABELS = {
   SCOLARITE: 'Scolarité', ADMIN_PORTAIL: 'Admins',
 };
 
+import BoutonExportPdf from '../components/ExportPdf';
+
 export default function Dashboard() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -101,6 +103,7 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <BoutonExportPdf />
           {['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'ADMIN_PORTAIL'].includes(user?.role) && (
             <button
               onClick={async () => {

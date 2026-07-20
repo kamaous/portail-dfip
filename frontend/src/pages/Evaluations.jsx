@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { SelecteurCursus, NIVEAUX, CalendrierMois } from './Tutorat';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 import PlageDates from '../components/PlageDates';
+import PanneauIncidents from '../components/PanneauIncidents';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
 export const SESSION_CODE = { 1: 'SN', 2: 'SR', 3: 'SS' }; // Normale / Rattrapage / Spéciale
@@ -278,8 +279,8 @@ export default function Evaluations() {
   const canCreate = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE';
   const peutSignaler = user?.role === 'RESPONSABLE_FORMATION';
-  // Délibérations : Directeurs de pôle + Responsable pédagogique (héritage)
-  const canDelib = ['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Délibérations : SEULS les Responsables pédagogiques des pôles
+  const canDelib = user?.role === 'RESPONSABLE_PEDAGOGIQUE';
 
   // Vue limitée au pôle : responsables de formation uniquement
   // (Directeurs de pôle et Responsables pédagogiques voient TOUS les pôles)
@@ -305,7 +306,7 @@ export default function Evaluations() {
     (!fSemestre || s.semestre_code === fSemestre) &&
     (!fPromo || s.promotion_code === fPromo));
   const detail = items.find(s => s.id === detailId);
-  const selectionnables = affiches.filter(s => s.etat_eval === 'EVAL_TERMINEES' && (user?.role !== 'RESPONSABLE_POLE' || s.pole_id === user?.pole_id));
+  const selectionnables = affiches.filter(s => s.etat_eval === 'EVAL_TERMINEES' && s.delib_etat !== 'TERMINEE' && s.pole_id === user?.pole_id);
   const toggleSel = id => setSelection(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
   const propsCarte = { update, changerDate, annuler, del, demanderSuppression, refuserSuppression, marquerTerminee, canSuivi, canDelib, canDelete, estRF, peutSignaler, userPoleId: user?.pole_id, userRole: user?.role };
 
@@ -399,6 +400,9 @@ export default function Evaluations() {
 
       {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
       <PanneauSignalements cibleType="EVALUATION" user={user} />
+
+      {/* Incidents remontés impactant les évaluations */}
+      <PanneauIncidents module="EVALUATIONS" poles={poles} segment={segment} />
 
       {loading ? (
         <div className="flex justify-center h-32 items-center"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
@@ -574,7 +578,12 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
   const verrouDelib = s.delib_etat === 'TERMINEE' && !['DIRECTEUR', 'ADMIN_PORTAIL'].includes(userRole);
   const editDates = !verrouDelib && (canSuivi || (estRF && s.pole_id === userPoleId)) && s.etat !== 'ANNULE' && !s.activite_id;
   const editSuivi = !verrouDelib && canSuivi;
-  const editDelib = !verrouDelib && (['RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE'].includes(userRole) ? s.pole_id === userPoleId : canDelib) && s.etat_eval === 'EVAL_TERMINEES';
+  // Délibérations : SEUL le Responsable pédagogique du pôle les modifie
+  // (le Directeur DFIP peut seulement corriger une évaluation déjà délibérée)
+  const editDelib = s.etat_eval === 'EVAL_TERMINEES' && (
+    (userRole === 'RESPONSABLE_PEDAGOGIQUE' && s.pole_id === userPoleId && !verrouDelib)
+    || (s.delib_etat === 'TERMINEE' && ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(userRole))
+  );
   const pct = progressionEval(s);
 
   // BROUILLON du suivi : les changements ne s'appliquent qu'au clic « Enregistrer l'état »

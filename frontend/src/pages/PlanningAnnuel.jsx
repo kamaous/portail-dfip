@@ -158,11 +158,49 @@ export function Overlays({ vacances, feries, tl }) {
   );
 }
 
+/* Vacances et fériés AU PREMIER PLAN : colonnes pleine hauteur avec le libellé
+   à la VERTICALE (style du classeur Excel UN-CHK). À poser une seule fois
+   au-dessus de toutes les pistes d'un tableau (décalé de la colonne des libellés). */
+export function OverlaysDevant({ vacances, feries, tl, left = '14rem' }) {
+  const vertical = { writingMode: 'vertical-rl', textOrientation: 'upright' };
+  return (
+    <div className="absolute inset-y-0 right-0 z-20 pointer-events-none overflow-hidden" style={{ left }}>
+      {vacances.map((v, i) => {
+        const l = tl.pctRaw(v.date_debut), r = tl.pctRaw(v.date_fin);
+        if (r <= 0 || l >= 100) return null;
+        const gauche = Math.max(0, l), w = Math.min(100, r) - gauche;
+        return (
+          <div key={`v${i}`} title={`🏖 ${v.libelle} : ${v.date_debut} → ${v.date_fin}`}
+            className="absolute inset-y-0 bg-red-600/80 border-x border-white/40 flex items-center justify-center overflow-hidden"
+            style={{ left: `${gauche}%`, width: `${Math.max(w, 0.5)}%` }}>
+            <span className="text-white font-bold text-[9px] leading-none tracking-widest max-h-full overflow-hidden" style={vertical}>
+              {v.libelle.toUpperCase()}
+            </span>
+          </div>
+        );
+      })}
+      {feries.map((f, i) => {
+        const l = tl.pct(f.date);
+        if (l <= 0 || l >= 100) return null;
+        return (
+          <div key={`f${i}`} title={`🚩 ${f.libelle} (${f.date})`}
+            className="absolute inset-y-0 bg-slate-800/85 flex items-center justify-center overflow-hidden"
+            style={{ left: `calc(${l}% - 9px)`, width: '18px' }}>
+            <span className="text-white font-bold text-[8px] leading-none tracking-wider max-h-full overflow-hidden" style={vertical}>
+              {f.libelle.toUpperCase()}
+            </span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /* Bandeau dédié sous l'en-tête : noms des vacances + marqueurs de fériés bien visibles */
 export function BandeauVacances({ vacances, feries, tl }) {
   return (
     <div className="flex border-b border-red-100 bg-red-50/60">
-      <div className="w-56 shrink-0 px-3 py-1.5 text-[10px] font-bold text-red-500 uppercase tracking-wide border-r border-slate-200 flex items-center">
+      <div className="w-56 shrink-0 px-3 py-1.5 text-[10px] font-bold text-red-500 uppercase tracking-wide border-r border-slate-200 flex items-center sticky left-0 bg-red-50 z-30">
         🏖 Vacances & fériés
       </div>
       <div className="flex-1 relative h-7">
@@ -192,6 +230,19 @@ export function BandeauVacances({ vacances, feries, tl }) {
       </div>
     </div>
   );
+}
+
+/* Libellés proposés pour la barre selon le TYPE d'activité et le NIVEAU :
+   Évaluations — L1/M1 : S1-S2 · L2 : S3-S4 · L3 : S5-S6 · M2 : S3-S4 (chacun en SN + SR)
+   Tutorat     — L1/M1 : S1,S2 · L2 : S3,S4 · L3 : S5,S6 · M2 : S3 */
+const LIGNE_NIVEAU_LIB = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
+function libellesPossibles(type, ligne) {
+  const niv = LIGNE_NIVEAU_LIB[ligne];
+  if (!niv) return null;
+  const SEMS = { L1: ['S1', 'S2'], M1: ['S1', 'S2'], L2: ['S3', 'S4'], L3: ['S5', 'S6'], M2: type === 'TUTORAT' ? ['S3'] : ['S3', 'S4'] };
+  if (type === 'EVALUATIONS') return SEMS[niv].flatMap(s => [`${s} SN`, `${s} SR`]);
+  if (type === 'TUTORAT') return SEMS[niv].map(s => `Tutorat ${s}`);
+  return null;
 }
 
 function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjouterLigne, onLignesChanged, onClose, onCreated }) {
@@ -239,14 +290,14 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
         <form onSubmit={submit} className="p-5 space-y-4">
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Segment *</label>
-            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value, ligne: '', type: e.target.value === 'RECTORAT' ? '' : f.type }))}>
+            <select value={form.segment} onChange={e => setForm(f => ({ ...f, segment: e.target.value, ligne: '', libelle: '', type: e.target.value === 'RECTORAT' ? '' : f.type }))}>
               {canSegments.map(s => <option key={s} value={s}>{SEGMENTS[s].label}</option>)}
             </select>
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">{termeLigne} *</label>
             <div className="flex gap-2">
-              <select value={form.ligne} onChange={e => setForm(f => ({ ...f, ligne: e.target.value }))} required className="flex-1">
+              <select value={form.ligne} onChange={e => setForm(f => ({ ...f, ligne: e.target.value, libelle: '' }))} required className="flex-1">
                 <option value="">— Choisir un {termeLigne.toLowerCase()} —</option>
                 {lignes.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
@@ -267,16 +318,12 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
               </div>
             )}
           </div>
-          <div>
-            <label className="text-sm font-medium text-slate-700 block mb-1">Libellé de la barre *</label>
-            <input value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))}
-              placeholder="Ex: S1, S1N (rattrapage), Réinscriptions..." required />
-          </div>
+          {/* TYPE D'ACTIVITÉ (avant le libellé) */}
           {!estRectorat && (
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Type d'activité</label>
-              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value }))}>
+              <select value={form.type} onChange={e => setForm(f => ({ ...f, type: e.target.value, libelle: '' }))}>
                 <option value="">— Générique —</option>
                 <option value="TUTORAT">Tutorat</option>
                 <option value="EVALUATIONS">Évaluations</option>
@@ -299,6 +346,23 @@ function ModalActivite({ annee, canSegments, defaultSegment, lignesMap, peutAjou
               pas de nouvelle saisie : le suivi se fera directement sur l'entrée liée.
             </p>
           )}
+
+          {/* LIBELLÉ : liste déroulante déduite du type + niveau, sinon saisie libre */}
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Libellé de la barre *</label>
+            {(() => {
+              const opts = estRectorat ? null : libellesPossibles(form.type, form.ligne);
+              return opts ? (
+                <select value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))} required>
+                  <option value="">— Choisir un libellé —</option>
+                  {opts.map(o => <option key={o} value={o}>{o}</option>)}
+                </select>
+              ) : (
+                <input value={form.libelle} onChange={e => setForm(f => ({ ...f, libelle: e.target.value }))}
+                  placeholder="Ex: S1, Réinscriptions, Découpage..." required />
+              );
+            })()}
+          </div>
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Période de l'activité (début → fin) *</label>
             <PlageDates debut={form.date_debut} fin={form.date_fin}
@@ -536,9 +600,9 @@ export default function PlanningAnnuel() {
       ) : (
         <div className="card !p-0 overflow-x-auto nav-scroll">
           <div className="min-w-[1100px]">
-            {/* En-tête des mois */}
-            <div className="flex sticky top-0 bg-white z-10 border-b border-slate-200">
-              <div className="w-56 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200">
+            {/* En-tête des mois — FIGÉ en haut, coin figé à gauche */}
+            <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200">
+              <div className="w-56 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200 sticky left-0 bg-white z-40">
                 Segments / Lignes / Niveaux
               </div>
               <EnTeteUnites tl={tl} />
@@ -547,7 +611,9 @@ export default function PlanningAnnuel() {
             {/* Bandeau vacances & fériés */}
             <BandeauVacances vacances={vacances} feries={feriesRange} tl={tl} />
 
-            {/* Segments (tous en vue globale, un seul en vue focalisée, limités au périmètre visible) */}
+            {/* Segments + vacances/fériés AU PREMIER PLAN (texte vertical) */}
+            <div className="relative">
+            <OverlaysDevant vacances={vacances} feries={feriesRange} tl={tl} left="14rem" />
             {Object.entries(SEGMENTS)
               .filter(([key]) => segmentsVisibles.includes(key) && (!segmentActif || key === segmentActif))
               .map(([key, seg]) => {
@@ -556,23 +622,22 @@ export default function PlanningAnnuel() {
               const lignes = [...new Set([...(lignesMap[key] || LIGNES_DEFAUT[key] || []), ...actsSeg.map(a => a.ligne)])];
               return (
                 <div key={key} className="border-b border-slate-100 last:border-0">
-                  {/* Bandeau segment (même style que les modules Tutorat / Évaluations) */}
-                  <div className={`flex items-center gap-2 px-3 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
-                    <span className={`font-bold ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }}>{seg.label}</span>
-                    <span className="text-xs text-slate-400 ml-auto shrink-0">{actsSeg.length} activité(s)</span>
+                  {/* Bandeau segment (libellé figé à gauche au défilement) */}
+                  <div className={`flex items-center gap-2 ${focus ? 'py-3' : 'py-2'}`} style={{ background: seg.light }}>
+                    <span className={`font-bold px-3 sticky left-0 z-30 max-w-[70vw] truncate ${focus ? 'text-base' : 'text-sm'}`} style={{ color: seg.color }} title={seg.label}>{seg.label}</span>
+                    <span className="text-xs text-slate-400 ml-auto shrink-0 pr-3">{actsSeg.length} activité(s)</span>
                   </div>
 
-                  {/* Lignes */}
+                  {/* Lignes (première colonne FIGÉE à gauche) */}
                   {lignes.map(ligne => {
                     const barres = actsSeg.filter(a => a.ligne === ligne);
                     return (
                       <div key={ligne} className="flex border-t border-slate-50">
-                        <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
+                        <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 sticky left-0 bg-white z-30 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
                           {ligne}
                         </div>
                         <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
                           <FondGrille tl={tl} />
-                          <Overlays vacances={vacances} feries={feriesRange} tl={tl} />
                           {/* Barres d'activité */}
                           {barres.map(a => {
                             const lr = tl.pctRaw(a.date_debut);
@@ -602,6 +667,7 @@ export default function PlanningAnnuel() {
                 </div>
               );
             })}
+            </div>
 
             {activites.length === 0 && (
               <div className="py-12 text-center text-slate-400">

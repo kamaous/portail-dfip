@@ -81,7 +81,9 @@ const TYPES_INCIDENT = ['GREVE', 'FETE', 'FERIE', 'EVENEMENT', 'INCIDENT_TECHNIQ
 const CONSEQ_EVAL = ['REPORT', 'ANNULATION', 'RALLONGE', 'ARRET', 'AUTRE'];
 
 // POST /api/incidents
-router.post('/', auth, (req, res) => {
+// Remontée d'incidents réservée aux : Responsables pédagogiques des pôles,
+// Chef division DFE (formations & évaluations), Chef division Technopédagogie (+ direction/admin)
+router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
   const { titre, description, type_incident, gravite, pole_id, promo_filiere_id, module,
           date_incident, date_debut, date_fin, assigne_a,
           consequence_examens, consequence_tutorat, consequence_calendrier,

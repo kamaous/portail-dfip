@@ -3,6 +3,7 @@ import api from '../lib/api';
 import { BookOpen, ClipboardCheck, FlaskConical, Gavel, RefreshCw } from 'lucide-react';
 import { progressionDates, etatTutoratAuto } from './Tutorat';
 import { progressionEval } from './Evaluations';
+import BoutonExportPdf from '../components/ExportPdf';
 
 /* Module RÉSUMÉ — inspiré du classeur « Calendrier académique UN-CHK » :
    - Volets Tutorat / Évaluations (filtre principal)
@@ -148,7 +149,10 @@ export default function Resume() {
           <h1 className="text-2xl font-bold text-slate-800">Résumé — Suivi de l'exécution</h1>
           <p className="text-slate-500 text-sm">Remontée des activités par pôle et suivi de la programmation des évaluations (DFIP)</p>
         </div>
-        <button onClick={load} className="btn-secondary flex items-center gap-2"><RefreshCw size={15} /> Actualiser</button>
+        <div className="flex items-center gap-2">
+          <BoutonExportPdf />
+          <button onClick={load} className="btn-secondary flex items-center gap-2"><RefreshCw size={15} /> Actualiser</button>
+        </div>
       </div>
 
       {/* Onglets façon classeur + volets + filtres */}

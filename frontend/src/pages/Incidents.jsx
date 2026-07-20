@@ -288,6 +288,7 @@ function IncidentCard({ incident, onRefresh }) {
 }
 
 export default function Incidents() {
+  const { user } = useAuth();
   const [incidents, setIncidents] = useState([]);
   const [stats, setStats] = useState(null);
   const [poles, setPoles] = useState([]);
@@ -297,7 +298,7 @@ export default function Incidents() {
   const [filtreStatut, setFiltreStatut] = useState('');
   const [filtreGravite, setFiltreGravite] = useState(searchParams.get('gravite') || '');
   const [modal, setModal] = useState(false);
-  const [vue, setVue] = useState('PLANNING');     // PLANNING | LISTE
+  const [vue, setVue] = useState('LISTE');        // LISTE (par défaut) | PLANNING
   const [segment, setSegment] = useState(null);   // null = tous, sinon code pôle ou GENERAL
   const [zoom, setZoom] = useState({ mode: 'ANNEE' });
   const [detailId, setDetailId] = useState(null);
@@ -361,9 +362,12 @@ export default function Incidents() {
           <h1 className="text-2xl font-bold text-slate-800">Incidents</h1>
           <p className="text-slate-500 text-sm">{incidents.length} incident(s)</p>
         </div>
-        <button onClick={() => setModal(true)} className="btn-danger flex items-center gap-2">
-          <Plus size={16} /> Signaler un incident
-        </button>
+        {/* Remontée réservée : Responsables pédagogiques, Chef div DFE, Chef div Technopédagogie */}
+        {['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role) && (
+          <button onClick={() => setModal(true)} className="btn-danger flex items-center gap-2">
+            <Plus size={16} /> Signaler un incident
+          </button>
+        )}
       </div>
 
       {/* Stats rapides */}
@@ -457,10 +461,50 @@ export default function Incidents() {
           <p>Aucun incident{segment ? ` pour ${segment === 'GENERAL' ? 'la catégorie Général' : `le pôle ${segment}`}` : ''}</p>
         </div>
       ) : vue === 'LISTE' ? (
-        <div className="space-y-3">
-          {incidentsAffiches.map(i => (
-            <IncidentCard key={i.id} incident={i} onRefresh={load} />
-          ))}
+        /* ===== Vue LISTE (par défaut) : tableau détaillé ===== */
+        <div className="card !p-0 overflow-x-auto nav-scroll">
+          <table className="w-full text-sm min-w-[1050px]">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                {['Gravité', 'Statut', 'Type', 'Incident', 'Pôle', 'Période', 'Conséq. évaluations', 'Conséq. tutorat', 'Signalé par', 'Assigné à', ''].map((h, i) => (
+                  <th key={i} className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {incidentsAffiches.map(i => (
+                <tr key={i.id} onClick={() => setDetailId(i.id)}
+                  className={`border-b border-slate-50 hover:bg-slate-50/70 cursor-pointer ${i.statut === 'RESOLU' ? 'opacity-60' : ''}`}>
+                  <td className="px-3 py-2"><span className={`badge ${GRAVITE_STYLES[i.gravite]} text-[11px]`}>{i.gravite}</span></td>
+                  <td className="px-3 py-2"><span className={`badge ${STATUT_STYLES[i.statut]} text-[11px]`}>{i.statut === 'RESOLU' ? '✓ RÉSOLU' : i.statut.replace('_', ' ')}</span></td>
+                  <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{i.type_incident}</td>
+                  <td className="px-3 py-2">
+                    <p className="font-medium text-slate-800 line-clamp-1" title={i.titre}>{i.titre}</p>
+                    <p className="text-xs text-slate-400 line-clamp-1" title={i.description}>{i.description}</p>
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap">
+                    {i.pole_nom ? codePole(i) : 'Général'}
+                    {(i.niveau || i.semestre_code) && <span className="text-slate-400"> · {i.niveau || ''} {i.semestre_code || ''}</span>}
+                    {i.session_num && <span className="text-slate-400"> · S{i.session_num}</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap tabular-nums">
+                    {(i.date_debut || i.date_incident) || '—'}{i.date_fin ? ` → ${i.date_fin}` : ''}
+                  </td>
+                  <td className="px-3 py-2 text-xs whitespace-nowrap">
+                    {(i.conseq_eval || i.consequence_examens)
+                      ? <span className="badge bg-red-100 text-red-700 text-[10px]">{i.conseq_eval || i.consequence_examens}</span> : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs whitespace-nowrap">
+                    {(i.conseq_tutorat || i.consequence_tutorat)
+                      ? <span className="badge bg-orange-100 text-orange-700 text-[10px]">{i.conseq_tutorat || i.consequence_tutorat}</span> : <span className="text-slate-300">—</span>}
+                  </td>
+                  <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{i.signale_par_prenom} {i.signale_par_nom}</td>
+                  <td className="px-3 py-2 text-xs text-slate-500 whitespace-nowrap">{i.assigne_a_nom ? `${i.assigne_a_prenom} ${i.assigne_a_nom}` : '—'}</td>
+                  <td className="px-3 py-2 text-right"><ChevronDown size={14} className="-rotate-90 text-slate-300" /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       ) : (
         /* ===== Vue PLANNING : pôle → un incident par ligne, barre = durée ===== */
