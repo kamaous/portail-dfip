@@ -46,21 +46,29 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
   const { user } = useAuth();
   const [form, setForm] = useState({
     titre: '', description: '', type_incident: 'AUTRE', gravite: 'FAIBLE',
-    pole_id: '', assigne_a: '', date_incident: '', date_debut: '', date_fin: '',
+    pole_ids: [], assigne_a: '', date_incident: '', date_debut: '', date_fin: '',
     conseq_eval: '', conseq_tutorat: '',
     promotion_id: '', formation_id: '', niveau: '', semestre_code: '', session_num: '',
     consequence_examens: '', consequence_tutorat: '', consequence_calendrier: ''
   });
   const [loading, setLoading] = useState(false);
-  const poleSel = poles.find(p => p.id === parseInt(form.pole_id));
+  // Formations filtrables uniquement quand UN SEUL pôle est sélectionné
+  const poleSel = form.pole_ids.length === 1 ? poles.find(p => p.id === form.pole_ids[0]) : null;
   const aConsequence = form.conseq_eval || form.conseq_tutorat;
+
+  // « Tous les pôles » = liste vide ; sinon liste à choix multiples
+  const basculerPole = (id) => setForm(f => ({
+    ...f,
+    pole_ids: id === null ? [] : (f.pole_ids.includes(id) ? f.pole_ids.filter(x => x !== id) : [...f.pole_ids, id]),
+    formation_id: '', // la formation dépend du pôle sélectionné
+  }));
 
   async function submit(e) {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/incidents', form);
-      toast.success('Incident signalé');
+      await api.post('/incidents', { ...form, pole_id: form.pole_ids });
+      toast.success(form.pole_ids.length > 1 ? `Incident signalé pour ${form.pole_ids.length} pôles` : 'Incident signalé');
       onCreated();
       onClose();
     } catch (err) {
@@ -105,11 +113,28 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Pôle concerné</label>
-              <select value={form.pole_id} onChange={e => setForm(f => ({ ...f, pole_id: e.target.value }))}>
-                <option value="">Tous les pôles</option>
-                {poles.map(p => <option key={p.id} value={p.id}>{p.nom}</option>)}
-              </select>
+              <label className="text-sm font-medium text-slate-700 block mb-1">
+                Pôle(s) concerné(s) <span className="text-xs font-normal text-slate-400">(choix multiples)</span>
+              </label>
+              <div className="border border-slate-200 rounded-xl overflow-hidden divide-y divide-slate-50">
+                <label className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 ${form.pole_ids.length === 0 ? 'bg-blue-50/70 font-semibold' : ''}`}>
+                  <input type="checkbox" checked={form.pole_ids.length === 0} onChange={() => basculerPole(null)}
+                    className="!w-4 !h-4 accent-[#1e3a5f] shrink-0" />
+                  <span className="text-slate-700">Tous les pôles</span>
+                </label>
+                {poles.map(p => (
+                  <label key={p.id} className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 ${form.pole_ids.includes(p.id) ? 'bg-blue-50/70' : ''}`}>
+                    <input type="checkbox" checked={form.pole_ids.includes(p.id)} onChange={() => basculerPole(p.id)}
+                      className="!w-4 !h-4 accent-[#1e3a5f] shrink-0" />
+                    <span className="text-slate-700">{p.code}</span>
+                    <span className="text-xs text-slate-400 truncate">{p.nom}</span>
+                  </label>
+                ))}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-1">
+                {form.pole_ids.length === 0 ? 'Incident général : visible sur tous les pôles.'
+                  : `Un incident sera créé pour chacun des ${form.pole_ids.length} pôle(s) sélectionné(s).`}
+              </p>
             </div>
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Assigné à</label>
@@ -174,7 +199,7 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
                     <option value="3">Session Spéciale</option>
                   </select>
                 </div>
-                {!form.pole_id && <p className="text-[11px] text-amber-600">💡 Choisissez un pôle ci-dessus pour filtrer les formations.</p>}
+                {!poleSel && <p className="text-[11px] text-amber-600">💡 Sélectionnez UN SEUL pôle ci-dessus pour filtrer les formations.</p>}
               </div>
             )}
           </div>

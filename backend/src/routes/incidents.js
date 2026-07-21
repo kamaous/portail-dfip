@@ -106,49 +106,59 @@ router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATI
     assigneId = directeur?.id || null;
   }
 
-  const result = db.prepare(`
+  // Pôle(s) concerné(s) : un id, une LISTE d'ids (un incident créé par pôle),
+  // ou rien = « Tous les pôles » (incident général, visible partout)
+  const polesCibles = (Array.isArray(pole_id) ? pole_id : [pole_id]).filter(Boolean);
+  const cibles = polesCibles.length ? polesCibles : [null];
+
+  const insert = db.prepare(`
     INSERT INTO incidents (titre, description, type_incident, gravite, signale_par, assigne_a,
       pole_id, promo_filiere_id, module, date_incident, date_debut, date_fin,
       consequence_examens, consequence_tutorat, consequence_calendrier,
       conseq_eval, conseq_tutorat, promotion_id, formation_id, niveau, semestre_code, session_num,
       ref_type, ref_id)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(titre, description, type_incident || 'AUTRE', gravite || 'FAIBLE', req.user.id, assigneId,
-    pole_id || null, promo_filiere_id || null, module || null,
-    date_incident || date_debut || null, date_debut || null, date_fin || null,
-    consequence_examens || null, consequence_tutorat || null, consequence_calendrier || null,
-    conseq_eval || null, conseq_tutorat || null,
-    promotion_id || null, formation_id || null, niveau || null, semestre_code || null, session_num || null,
-    ['TUTORAT', 'SESSION_EXAMEN'].includes(ref_type) ? ref_type : null, ref_id || null);
+  `);
+  const crees = [];
+  for (const cible of cibles) {
+    const result = insert.run(titre, description, type_incident || 'AUTRE', gravite || 'FAIBLE', req.user.id, assigneId,
+      cible || null, promo_filiere_id || null, module || null,
+      date_incident || date_debut || null, date_debut || null, date_fin || null,
+      consequence_examens || null, consequence_tutorat || null, consequence_calendrier || null,
+      conseq_eval || null, conseq_tutorat || null,
+      promotion_id || null, formation_id || null, niveau || null, semestre_code || null, session_num || null,
+      ['TUTORAT', 'SESSION_EXAMEN'].includes(ref_type) ? ref_type : null, ref_id || null);
+    crees.push(db.prepare('SELECT * FROM incidents WHERE id = ?').get(result.lastInsertRowid));
+  }
+  const incident = crees[0];
+  const suffixePoles = cibles.length > 1 ? ` (${cibles.length} pôles)` : '';
 
-  const incident = db.prepare('SELECT * FROM incidents WHERE id = ?').get(result.lastInsertRowid);
-
-  // Notifier l'assigné
+  // Notifier l'assigné (une seule fois, même pour plusieurs pôles)
   if (assigneId) {
     const assigne = db.prepare('SELECT * FROM users WHERE id = ?').get(assigneId);
     if (assigne) {
       db.prepare(`INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)`)
-        .run(assigne.id, '🚨 Incident signalé', `${req.user.prenom} ${req.user.nom} : "${titre}"`, 'INCIDENT', `/incidents/${incident.id}`);
+        .run(assigne.id, '🚨 Incident signalé', `${req.user.prenom} ${req.user.nom} : "${titre}"${suffixePoles}`, 'INCIDENT', `/incidents/${incident.id}`);
       const tpl = templates.nouvelIncident(assigne, req.user, incident);
       sendEmail({ to: assigne.email, ...tpl });
     }
   }
 
-  // Notifier le Directeur pour tout incident grave
+  // Notifier le Directeur pour tout incident grave (une seule fois)
   if (['CRITIQUE', 'HAUTE'].includes(gravite || 'FAIBLE')) {
     const directeurs = db.prepare("SELECT * FROM users WHERE role IN ('DIRECTEUR', 'CHEF_SERVICE') AND actif = 1").all();
     directeurs.forEach(d => {
       if (d.id !== assigneId) {
         db.prepare(`INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)`)
-          .run(d.id, '⚠️ Incident grave signalé', `Gravité ${gravite} : "${titre}"`, 'ALERTE', `/incidents/${incident.id}`);
+          .run(d.id, '⚠️ Incident grave signalé', `Gravité ${gravite} : "${titre}"${suffixePoles}`, 'ALERTE', `/incidents/${incident.id}`);
       }
     });
   }
 
   db.prepare(`INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)`)
-    .run(req.user.id, 'CREATE_INCIDENT', 'INCIDENTS', titre);
+    .run(req.user.id, 'CREATE_INCIDENT', 'INCIDENTS', `${titre}${suffixePoles}`);
 
-  res.status(201).json(incident);
+  res.status(201).json(crees.length === 1 ? incident : crees);
 });
 
 // PUT /api/incidents/:id/statut

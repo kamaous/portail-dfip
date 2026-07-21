@@ -848,7 +848,7 @@ export default function Tutorat() {
               ...incidentsData
                 .filter(i => (i.conseq_tutorat || i.consequence_tutorat)
                   && (i.date_debut || i.date_incident)
-                  && (!segment || poles.find(p => p.id === i.pole_id)?.code === segment))
+                  && (!segment || !i.pole_id || poles.find(p => p.id === i.pole_id)?.code === segment))
                 .map(i => {
                   const debut = i.date_debut || i.date_incident;
                   return {
