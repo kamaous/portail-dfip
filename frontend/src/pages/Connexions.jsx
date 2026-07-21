@@ -15,15 +15,18 @@ const ROLE_COLORS = {
 export default function Connexions() {
   const [online, setOnline] = useState([]);
   const [sessions, setSessions] = useState([]);
+  const [visites, setVisites] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.get('/users/online'),
-      api.get('/users/sessions?limit=100')
-    ]).then(([o, s]) => {
+      api.get('/users/sessions?limit=100'),
+      api.get('/users/visites').catch(() => ({ data: null })),
+    ]).then(([o, s, v]) => {
       setOnline(o.data);
       setSessions(s.data);
+      setVisites(v.data);
     }).finally(() => setLoading(false));
 
     const iv = setInterval(() => {
@@ -45,6 +48,22 @@ export default function Connexions() {
         <h1 className="text-2xl font-bold text-slate-800">Suivi des connexions</h1>
         <p className="text-slate-500 text-sm">Utilisateurs en ligne et historique des sessions</p>
       </div>
+
+      {/* Compteur de visites du portail */}
+      {visites && (
+        <div className="grid grid-cols-3 gap-3">
+          {[
+            ['Visites totales du site', visites.total, 'text-[#1e3a5f]'],
+            ['Ce mois-ci', visites.ce_mois, 'text-blue-600'],
+            ["Aujourd'hui", visites.aujourdhui, 'text-green-600'],
+          ].map(([l, v, c]) => (
+            <div key={l} className="card text-center py-4">
+              <p className={`text-3xl font-bold ${c}`}>{v}</p>
+              <p className="text-xs text-slate-500 mt-0.5">{l}</p>
+            </div>
+          ))}
+        </div>
+      )}
 
       {/* En ligne */}
       <div className="card">
@@ -74,7 +93,6 @@ export default function Connexions() {
                     <Clock size={11} />
                     <span>{u.minutes_connecte} min</span>
                   </div>
-                  <p className="text-xs text-slate-400">{u.ip_address}</p>
                 </div>
               </div>
             ))}
@@ -96,7 +114,6 @@ export default function Connexions() {
                 <th className="table-header pb-2">Connexion</th>
                 <th className="table-header pb-2">Déconnexion</th>
                 <th className="table-header pb-2">Durée</th>
-                <th className="table-header pb-2">IP</th>
                 <th className="table-header pb-2">Statut</th>
               </tr>
             </thead>
@@ -123,7 +140,6 @@ export default function Connexions() {
                   <td className="py-2.5 pr-4 text-slate-600">
                     {s.duree_minutes ? `${s.duree_minutes} min` : '—'}
                   </td>
-                  <td className="py-2.5 pr-4 text-slate-400 font-mono text-xs">{s.ip_address || '—'}</td>
                   <td className="py-2.5">
                     <div className="flex items-center gap-1">
                       {s.actif ? (

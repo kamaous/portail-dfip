@@ -6,7 +6,8 @@ import { useAuth } from '../context/AuthContext';
 import { SelecteurCursus, NIVEAUX, CalendrierMois } from './Tutorat';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 import PlageDates from '../components/PlageDates';
-import PanneauIncidents from '../components/PanneauIncidents';
+import { useNavigate } from 'react-router-dom';
+import { GRAVITE_COULEUR } from './Tutorat';
 
 export const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
 export const SESSION_CODE = { 1: 'SN', 2: 'SR', 3: 'SS' }; // Normale / Rattrapage / Spéciale
@@ -202,6 +203,8 @@ export default function Evaluations() {
   const [conflitInfo, setConflitInfo] = useState(null); // popup conflit inter-pôles
 
   const [plagesPlanning, setPlagesPlanning] = useState([]); // activités type EVALUATIONS du Planning annuel
+  const [incidentsData, setIncidentsData] = useState([]);   // incidents avec conséquence évaluations
+  const navigate = useNavigate();
 
   function load() {
     setLoading(true);
@@ -216,9 +219,11 @@ export default function Evaluations() {
       api.get('/calendrier-academique/vacances'),
       api.get('/calendrier-academique/feries'),
       api.get('/planning/plages?type=EVALUATIONS'),
-    ]).then(([s, p, pr, a, v, f, pl]) => {
+      api.get('/incidents').catch(() => ({ data: [] })),
+    ]).then(([s, p, pr, a, v, f, pl, inc]) => {
       setItems(s.data); setPoles(p.data); setPromotions(pr.data); setAnnees(a.data);
       setVacances(v.data); setFeries(f.data); setPlagesPlanning(pl.data);
+      setIncidentsData(inc.data);
     }).finally(() => setLoading(false));
   }
   useEffect(load, [filtreSession, filtreType]);
@@ -401,9 +406,6 @@ export default function Evaluations() {
       {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
       <PanneauSignalements cibleType="EVALUATION" user={user} />
 
-      {/* Incidents remontés impactant les évaluations */}
-      <PanneauIncidents module="EVALUATIONS" poles={poles} segment={segment} />
-
       {loading ? (
         <div className="flex justify-center h-32 items-center"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
       ) : affiches.length === 0 ? (
@@ -442,6 +444,21 @@ export default function Evaluations() {
             vacances={vacances} feries={feries}
             onDayClick={canCreate ? (d) => { setModalDate(d); setModal(true); } : undefined}
             events={[
+              // Incidents impactant les évaluations : bandes 🚨 (couleur = gravité), clic → module Incidents
+              ...incidentsData
+                .filter(i => (i.conseq_eval || i.consequence_examens)
+                  && (i.date_debut || i.date_incident)
+                  && (!segment || poles.find(p => p.id === i.pole_id)?.code === segment))
+                .map(i => {
+                  const debut = i.date_debut || i.date_incident;
+                  return {
+                    debut, fin: i.date_fin || debut,
+                    color: GRAVITE_COULEUR[i.gravite] || '#991b1b',
+                    label: `🚨 ${i.statut === 'RESOLU' ? '✓ ' : ''}${i.titre} · ${i.conseq_eval || i.consequence_examens}`,
+                    titre: `Incident ${i.gravite} — ${i.titre} · Conséquence évaluations : ${i.conseq_eval || i.consequence_examens} · ${i.statut === 'RESOLU' ? 'Résolu' : i.statut} (cliquer pour ouvrir le module Incidents)`,
+                    onClick: () => navigate('/incidents'),
+                  };
+                }),
               // Plages EVALUATIONS du Planning annuel : bandes pointillées
               ...plagesPlanning.filter(p => !segment || p.pole_code === segment).map(p => ({
                 debut: p.date_debut, fin: p.date_fin, dashed: true,
@@ -495,6 +512,13 @@ export default function Evaluations() {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#16a34a' }} /> Terminées</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded" style={{ background: '#dc2626' }} /> Annulée</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border-2 border-dashed border-slate-400 bg-white" /> Plage du Planning annuel</span>
+          <span className="flex items-center gap-1.5">🚨 Incident impactant les évaluations
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.CRITIQUE }} title="Critique" />
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.HAUTE }} title="Haute" />
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.MOYENNE }} title="Moyenne" />
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.FAIBLE }} title="Faible" />
+            (✓ = résolu)
+          </span>
           <span>📝 = devoir · SN/SR/SS = session Normale/Rattrapage/Spéciale · ⚖ = délibéré · Cliquez sur une bande pour les détails.</span>
         </div>
       )}

@@ -76,25 +76,29 @@ router.get('/:id', auth, (req, res) => {
   res.json({ ...tache, commentaires });
 });
 
-// POST /api/taches
+// POST /api/taches — assigne_a accepte UN id ou une LISTE d'ids :
+// une tâche est créée (et notifiée) pour chaque destinataire
 router.post('/', auth, (req, res) => {
   const { titre, description, type, priorite, assigne_a, date_echeance, module, ref_id } = req.body;
-  if (!titre || !assigne_a) return res.status(400).json({ error: 'Titre et destinataire requis' });
+  const destinataires = (Array.isArray(assigne_a) ? assigne_a : [assigne_a]).filter(Boolean);
+  if (!titre || destinataires.length === 0) return res.status(400).json({ error: 'Titre et au moins un destinataire requis' });
 
   const db = getDb();
-
-  const result = db.prepare(`
-    INSERT INTO taches (titre, description, type, priorite, assigne_par, assigne_a, date_echeance, module, ref_id)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(titre, description || null, type || 'GENERALE', priorite || 'NORMALE', req.user.id, assigne_a, date_echeance || null, module || null, ref_id || null);
-
-  const newTache = db.prepare('SELECT * FROM taches WHERE id = ?').get(result.lastInsertRowid);
-  notifyAssigne(db, newTache, req.user);
+  const creees = [];
+  for (const dest of destinataires) {
+    const result = db.prepare(`
+      INSERT INTO taches (titre, description, type, priorite, assigne_par, assigne_a, date_echeance, module, ref_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(titre, description || null, type || 'GENERALE', priorite || 'NORMALE', req.user.id, dest, date_echeance || null, module || null, ref_id || null);
+    const newTache = db.prepare('SELECT * FROM taches WHERE id = ?').get(result.lastInsertRowid);
+    notifyAssigne(db, newTache, req.user);
+    creees.push(newTache);
+  }
 
   db.prepare(`INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)`)
-    .run(req.user.id, 'CREATE_TACHE', 'TACHES', titre);
+    .run(req.user.id, 'CREATE_TACHE', 'TACHES', `${titre} (${creees.length} destinataire(s))`);
 
-  res.status(201).json(newTache);
+  res.status(201).json(creees.length === 1 ? creees[0] : creees);
 });
 
 // PUT /api/taches/:id/statut

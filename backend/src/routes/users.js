@@ -51,6 +51,16 @@ router.get('/sessions', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, r
   res.json(sessions);
 });
 
+// GET /api/users/visites — nombre total de visites (connexions) du portail
+router.get('/visites', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  res.json({
+    total: db.prepare('SELECT COUNT(*) as c FROM user_sessions').get().c,
+    ce_mois: db.prepare("SELECT COUNT(*) as c FROM user_sessions WHERE connected_at >= date('now', 'start of month')").get().c,
+    aujourdhui: db.prepare("SELECT COUNT(*) as c FROM user_sessions WHERE date(connected_at) = date('now')").get().c,
+  });
+});
+
 // POST /api/users — créer un utilisateur (ADMIN + DIRECTEUR)
 router.post('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
   const { nom, prenom, email, role, pole_id, service, password } = req.body;

@@ -191,11 +191,111 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
   );
 }
 
+/* Boîte de dialogue de RÉSOLUTION : le Directeur DFIP décide, de façon documentée,
+   de l'effet sur les dates de l'élément lié (prolonger / reporter / annuler / intact) */
+function ModalResolution({ incident, onClose, onDone }) {
+  const dureeIncident = incident.date_debut && incident.date_fin
+    ? Math.max(1, Math.round((Date.parse(incident.date_fin) - Date.parse(incident.date_debut)) / 86400000))
+    : 1;
+  const [decision, setDecision] = useState('INTACT');
+  const [jours, setJours] = useState(dureeIncident);
+  const [nouvelleDate, setNouvelleDate] = useState('');
+  const [resolution, setResolution] = useState('');
+  const [loading, setLoading] = useState(false);
+  const lie = incident.ref_type === 'TUTORAT' ? 'la fiche de tutorat liée'
+    : incident.ref_type === 'SESSION_EXAMEN' ? "l'évaluation liée" : null;
+
+  const DECISIONS = [
+    ['PROLONGER', 'Prolonger / étendre les dates', `La date de fin ${lie ? `de ${lie}` : ''} est repoussée du nombre de jours indiqué (ex. +${dureeIncident} j si l'incident a duré ${dureeIncident} j).`],
+    ['REPORTER', 'Reporter', `La période ${lie ? `de ${lie}` : ''} est décalée à partir d'une nouvelle date de début — la durée initiale est conservée.`],
+    ['ANNULER', 'Annuler', incident.ref_type === 'SESSION_EXAMEN' ? "L'évaluation liée passe à l'état ANNULÉE." : incident.ref_type === 'TUTORAT' ? 'L\'arrêt du tutorat est documenté dans la fiche.' : 'La décision d\'annulation est documentée.'],
+    ['INTACT', 'Garder les dates intactes', 'Aucune modification de dates — la décision et sa justification sont documentées.'],
+  ];
+
+  async function valider() {
+    setLoading(true);
+    try {
+      const r = await api.post(`/incidents/${incident.id}/resoudre`, {
+        decision, jours: decision === 'PROLONGER' ? Number(jours) : undefined,
+        nouvelle_date: decision === 'REPORTER' ? nouvelleDate : undefined,
+        resolution: resolution.trim(),
+      });
+      toast.success(r.data?.message || 'Incident résolu', { duration: 6000 });
+      onDone(); onClose();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
+        <div className="px-5 py-4 bg-[#1e3a5f] text-white">
+          <h2 className="font-bold">⚖ Résolution de l'incident — décision du Directeur DFIP</h2>
+          <p className="text-xs text-white/75 mt-0.5">{incident.gravite} · {incident.titre}</p>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 space-y-1">
+            <p><strong>Description :</strong> {incident.description}</p>
+            <p><strong>Période de l'incident :</strong> {(incident.date_debut || incident.date_incident) || '—'}{incident.date_fin ? ` → ${incident.date_fin}` : ''} ({dureeIncident} jour(s))</p>
+            <p>
+              <strong>Élément lié :</strong>{' '}
+              {lie ? <span className="text-blue-700">🔗 {lie} — la décision s'y appliquera automatiquement</span>
+                : <span className="text-amber-700">aucun — la décision sera documentée sans modification automatique de dates</span>}
+            </p>
+          </div>
+
+          <div className="space-y-2">
+            <p className="text-sm font-semibold text-slate-700">Décision *</p>
+            {DECISIONS.map(([val, titre, desc]) => (
+              <label key={val} className={`block border-2 rounded-xl p-3 cursor-pointer transition-colors ${decision === val ? 'border-[#1e3a5f] bg-blue-50/60' : 'border-slate-200 hover:border-slate-300'}`}>
+                <span className="flex items-center gap-2">
+                  <input type="radio" name="decision" checked={decision === val} onChange={() => setDecision(val)} className="!w-4 !h-4 accent-[#1e3a5f]" />
+                  <span className="text-sm font-semibold text-slate-800">{titre}</span>
+                </span>
+                <span className="block text-xs text-slate-500 mt-1 ml-6">{desc}</span>
+                {val === 'PROLONGER' && decision === 'PROLONGER' && (
+                  <span className="flex items-center gap-2 mt-2 ml-6 text-xs">
+                    Prolonger de
+                    <input type="number" min="1" max="365" value={jours} onChange={e => setJours(e.target.value)} className="!w-20 !py-1 !text-xs" />
+                    jour(s)
+                  </span>
+                )}
+                {val === 'REPORTER' && decision === 'REPORTER' && (
+                  <span className="flex items-center gap-2 mt-2 ml-6 text-xs">
+                    Nouvelle date de début
+                    <input type="date" value={nouvelleDate} onChange={e => setNouvelleDate(e.target.value)} className="!w-auto !py-1 !text-xs" />
+                  </span>
+                )}
+              </label>
+            ))}
+          </div>
+
+          <div>
+            <label className="text-sm font-semibold text-slate-700 block mb-1">Résolution documentée *</label>
+            <textarea value={resolution} onChange={e => setResolution(e.target.value)} rows={3}
+              placeholder="Décrivez clairement la décision, sa justification et les mesures prises..." />
+          </div>
+
+          <div className="flex gap-2">
+            <button onClick={onClose} className="btn-secondary flex-1">Annuler</button>
+            <button onClick={valider}
+              disabled={loading || !resolution.trim() || (decision === 'PROLONGER' && !(Number(jours) > 0)) || (decision === 'REPORTER' && !nouvelleDate)}
+              className="btn-primary flex-1 disabled:opacity-40">
+              {loading ? '...' : '✓ Résoudre l\'incident'}
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function IncidentCard({ incident, onRefresh }) {
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState(null);
   const [comment, setComment] = useState('');
+  const [resoudre, setResoudre] = useState(false);
 
   async function loadDetail() {
     if (detail) { setExpanded(v => !v); return; }
@@ -205,8 +305,7 @@ function IncidentCard({ incident, onRefresh }) {
   }
 
   async function changerStatut(statut) {
-    const resolution = statut === 'RESOLU' ? prompt('Résolution / observation :') : undefined;
-    await api.put(`/incidents/${incident.id}/statut`, { statut, resolution });
+    await api.put(`/incidents/${incident.id}/statut`, { statut });
     toast.success('Statut mis à jour');
     onRefresh();
   }
@@ -221,6 +320,8 @@ function IncidentCard({ incident, onRefresh }) {
   }
 
   const canResolve = ['DIRECTEUR', 'CHEF_SERVICE', 'ADMIN_PORTAIL'].includes(user?.role) || incident.assigne_a === user?.id;
+  // La résolution DÉCISIONNELLE (effet sur les dates) appartient au Directeur DFIP
+  const canDecider = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
 
   return (
     <div className="card hover:shadow-md transition-shadow">
@@ -237,7 +338,8 @@ function IncidentCard({ incident, onRefresh }) {
             <span>Signalé par : {incident.signale_par_prenom} {incident.signale_par_nom}</span>
             {incident.assigne_a_nom && <span>Assigné à : {incident.assigne_a_prenom} {incident.assigne_a_nom}</span>}
             {incident.pole_nom && <span>Pôle : {incident.pole_nom}</span>}
-            {incident.date_incident && <span>{format(new Date(incident.date_incident), 'dd/MM/yyyy')}</span>}
+            {incident.created_at && <span>📅 Déclaré le {format(new Date(incident.created_at), 'dd/MM/yyyy HH:mm')}</span>}
+            {incident.date_incident && <span>Survenu le {format(new Date(incident.date_incident), 'dd/MM/yyyy')}</span>}
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
@@ -246,9 +348,9 @@ function IncidentCard({ incident, onRefresh }) {
               Prendre en charge
             </button>
           )}
-          {canResolve && incident.statut !== 'RESOLU' && (
-            <button onClick={() => changerStatut('RESOLU')} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg" title="Résoudre">
-              <CheckCircle size={16} />
+          {canDecider && incident.statut !== 'RESOLU' && (
+            <button onClick={() => setResoudre(true)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg flex items-center gap-1 text-xs font-medium" title="Résoudre (décision du DFIP : prolonger / reporter / annuler / intact)">
+              <CheckCircle size={16} /> Résoudre
             </button>
           )}
           <button onClick={loadDetail} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">
@@ -256,6 +358,8 @@ function IncidentCard({ incident, onRefresh }) {
           </button>
         </div>
       </div>
+
+      {resoudre && <ModalResolution incident={incident} onClose={() => setResoudre(false)} onDone={onRefresh} />}
 
       {expanded && detail && (
         <div className="mt-4 pt-4 border-t border-slate-100">
@@ -466,7 +570,7 @@ export default function Incidents() {
           <table className="w-full text-sm min-w-[1050px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-left">
-                {['Gravité', 'Statut', 'Type', 'Incident', 'Pôle', 'Période', 'Conséq. évaluations', 'Conséq. tutorat', 'Signalé par', 'Assigné à', ''].map((h, i) => (
+                {['Gravité', 'Statut', 'Type', 'Incident', 'Pôle', 'Déclaré le', 'Période', 'Conséq. évaluations', 'Conséq. tutorat', 'Signalé par', 'Assigné à', ''].map((h, i) => (
                   <th key={i} className="px-3 py-2.5 text-[11px] font-bold uppercase tracking-wide text-slate-500 whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -487,6 +591,7 @@ export default function Incidents() {
                     {(i.niveau || i.semestre_code) && <span className="text-slate-400"> · {i.niveau || ''} {i.semestre_code || ''}</span>}
                     {i.session_num && <span className="text-slate-400"> · S{i.session_num}</span>}
                   </td>
+                  <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap tabular-nums">{(i.created_at || '').slice(0, 10) || '—'}</td>
                   <td className="px-3 py-2 text-xs text-slate-600 whitespace-nowrap tabular-nums">
                     {(i.date_debut || i.date_incident) || '—'}{i.date_fin ? ` → ${i.date_fin}` : ''}
                   </td>

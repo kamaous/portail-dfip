@@ -6,7 +6,10 @@ import { useAuth } from '../context/AuthContext';
 import { useMemo } from 'react';
 import { BoutonSignaler, PanneauSignalements } from '../components/Signalements';
 import PlageDates from '../components/PlageDates';
-import PanneauIncidents from '../components/PanneauIncidents';
+import { useNavigate } from 'react-router-dom';
+
+/* Couleur des bandes d'incident selon la gravité (légende propre aux modules) */
+export const GRAVITE_COULEUR = { CRITIQUE: '#991b1b', HAUTE: '#ea580c', MOYENNE: '#d97706', FAIBLE: '#64748b' };
 
 /* Configuration des champs d'état — vocabulaire officiel du fichier Tutorat UN-CHK */
 const ENROLEMENT = {
@@ -568,6 +571,8 @@ export default function Tutorat() {
   const [vacances, setVacances] = useState([]);
   const [feries, setFeries] = useState([]);
   const [plagesPlanning, setPlagesPlanning] = useState([]); // activités type TUTORAT du Planning annuel
+  const [incidentsData, setIncidentsData] = useState([]);   // incidents avec conséquence tutorat
+  const navigate = useNavigate();
 
   function load() {
     setLoading(true);
@@ -579,9 +584,11 @@ export default function Tutorat() {
       api.get('/calendrier-academique/vacances'),
       api.get('/calendrier-academique/feries'),
       api.get('/planning/plages?type=TUTORAT'),
-    ]).then(([t, p, pr, a, v, f, pl]) => {
+      api.get('/incidents').catch(() => ({ data: [] })),
+    ]).then(([t, p, pr, a, v, f, pl, inc]) => {
       setTutorats(t.data); setPoles(p.data); setPromotions(pr.data); setAnnees(a.data);
       setVacances(v.data); setFeries(f.data); setPlagesPlanning(pl.data);
+      setIncidentsData(inc.data);
     }).finally(() => setLoading(false));
   }
   useEffect(load, []);
@@ -763,9 +770,6 @@ export default function Tutorat() {
       {/* Signalements des responsables de formation → traités par le Responsable pédagogique */}
       <PanneauSignalements cibleType="TUTORAT" user={user} />
 
-      {/* Incidents remontés impactant le tutorat */}
-      <PanneauIncidents module="TUTORAT" poles={poles} segment={segment} />
-
       <div className="flex gap-2 flex-wrap items-center">
         {['', 'PAS_DEMARRE', 'PRET', 'EN_COURS', 'TERMINE'].map(s => (
           <button key={s} onClick={() => setFiltreEtat(s)}
@@ -840,6 +844,21 @@ export default function Tutorat() {
             vacances={vacances} feries={feries}
             onDayClick={canCreate ? (d) => { setModalDate(d); setModal(true); } : undefined}
             events={[
+              // Incidents impactant le tutorat : bandes 🚨 (couleur = gravité), clic → module Incidents
+              ...incidentsData
+                .filter(i => (i.conseq_tutorat || i.consequence_tutorat)
+                  && (i.date_debut || i.date_incident)
+                  && (!segment || poles.find(p => p.id === i.pole_id)?.code === segment))
+                .map(i => {
+                  const debut = i.date_debut || i.date_incident;
+                  return {
+                    debut, fin: i.date_fin || debut,
+                    color: GRAVITE_COULEUR[i.gravite] || '#991b1b',
+                    label: `🚨 ${i.statut === 'RESOLU' ? '✓ ' : ''}${i.titre} · ${i.conseq_tutorat || i.consequence_tutorat}`,
+                    titre: `Incident ${i.gravite} — ${i.titre} · Conséquence tutorat : ${i.conseq_tutorat || i.consequence_tutorat} · ${i.statut === 'RESOLU' ? 'Résolu' : i.statut} (cliquer pour ouvrir le module Incidents)`,
+                    onClick: () => navigate('/incidents'),
+                  };
+                }),
               // Plages TUTORAT du Planning annuel : bandes pointillées
               ...plagesPlanning.filter(p => !segment || p.pole_code === segment).map(p => ({
                 debut: p.date_debut, fin: p.date_fin, dashed: true,
@@ -899,6 +918,13 @@ export default function Tutorat() {
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded border-2 border-dashed border-slate-400 bg-white" /> Plage du Planning annuel</span>
           <span className="flex items-center gap-1.5"><span className="w-3 h-3 rounded bg-red-50 border border-red-200" /> Vacances</span>
           <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-red-500" /> Férié</span>
+          <span className="flex items-center gap-1.5">🚨 Incident impactant le tutorat
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.CRITIQUE }} title="Critique" />
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.HAUTE }} title="Haute" />
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.MOYENNE }} title="Moyenne" />
+            <span className="w-3 h-3 rounded" style={{ background: GRAVITE_COULEUR.FAIBLE }} title="Faible" />
+            (✓ = résolu)
+          </span>
           <span>Cliquez sur une bande pour afficher et modifier la fiche.</span>
         </div>
       )}

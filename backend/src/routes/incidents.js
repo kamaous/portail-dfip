@@ -87,7 +87,8 @@ router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATI
   const { titre, description, type_incident, gravite, pole_id, promo_filiere_id, module,
           date_incident, date_debut, date_fin, assigne_a,
           consequence_examens, consequence_tutorat, consequence_calendrier,
-          conseq_eval, conseq_tutorat, promotion_id, formation_id, niveau, semestre_code, session_num } = req.body;
+          conseq_eval, conseq_tutorat, promotion_id, formation_id, niveau, semestre_code, session_num,
+          ref_type, ref_id } = req.body;
   if (!titre || !description) return res.status(400).json({ error: 'Nom et description détaillée requis' });
   if (type_incident && !TYPES_INCIDENT.includes(type_incident) && !['ACADEMIQUE', 'ADMINISTRATIF', 'TECHNIQUE', 'COMPORTEMENT', 'RETARD', 'REPORT_EXAMEN', 'ANNULATION_EXAMEN'].includes(type_incident)) {
     return res.status(400).json({ error: 'Type d\'incident invalide' });
@@ -109,14 +110,16 @@ router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATI
     INSERT INTO incidents (titre, description, type_incident, gravite, signale_par, assigne_a,
       pole_id, promo_filiere_id, module, date_incident, date_debut, date_fin,
       consequence_examens, consequence_tutorat, consequence_calendrier,
-      conseq_eval, conseq_tutorat, promotion_id, formation_id, niveau, semestre_code, session_num)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      conseq_eval, conseq_tutorat, promotion_id, formation_id, niveau, semestre_code, session_num,
+      ref_type, ref_id)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(titre, description, type_incident || 'AUTRE', gravite || 'FAIBLE', req.user.id, assigneId,
     pole_id || null, promo_filiere_id || null, module || null,
     date_incident || date_debut || null, date_debut || null, date_fin || null,
     consequence_examens || null, consequence_tutorat || null, consequence_calendrier || null,
     conseq_eval || null, conseq_tutorat || null,
-    promotion_id || null, formation_id || null, niveau || null, semestre_code || null, session_num || null);
+    promotion_id || null, formation_id || null, niveau || null, semestre_code || null, session_num || null,
+    ['TUTORAT', 'SESSION_EXAMEN'].includes(ref_type) ? ref_type : null, ref_id || null);
 
   const incident = db.prepare('SELECT * FROM incidents WHERE id = ?').get(result.lastInsertRowid);
 
@@ -149,6 +152,101 @@ router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATI
 });
 
 // PUT /api/incidents/:id/statut
+/* POST /api/incidents/:id/resoudre — RÉSOLUTION DÉCISIONNELLE du Directeur DFIP.
+   Décisions possibles, appliquées à l'élément lié (fiche tutorat / évaluation) :
+   - PROLONGER : étend la date de fin de N jours (ex. +5 j si l'incident a duré 5 j)
+   - REPORTER  : décale la période à partir d'une nouvelle date de début
+   - ANNULER   : annule l'évaluation liée (ou documente l'arrêt du tutorat)
+   - INTACT    : les dates sont conservées, la décision est documentée */
+router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const { decision, jours, nouvelle_date, resolution } = req.body;
+  if (!['PROLONGER', 'REPORTER', 'ANNULER', 'INTACT'].includes(decision)) {
+    return res.status(400).json({ error: 'Décision invalide' });
+  }
+  if (!resolution?.trim()) {
+    return res.status(400).json({ error: 'La description documentée de la résolution est obligatoire.' });
+  }
+  const db = getDb();
+  const inc = db.prepare('SELECT * FROM incidents WHERE id = ?').get(req.params.id);
+  if (!inc) return res.status(404).json({ error: 'Incident non trouvé' });
+
+  const addJours = (dateStr, n) => {
+    const d = new Date(`${dateStr}T00:00:00`); d.setDate(d.getDate() + n);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  };
+  const actions = [];
+
+  if (inc.ref_type && inc.ref_id) {
+    if (decision === 'PROLONGER' && Number(jours) > 0) {
+      const n = Number(jours);
+      if (inc.ref_type === 'TUTORAT') {
+        const t = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(inc.ref_id);
+        if (t?.date_fin) {
+          const nf = addJours(t.date_fin, n);
+          db.prepare("UPDATE tutorat SET date_fin = ?, updated_at = datetime('now') WHERE id = ?").run(nf, t.id);
+          actions.push(`fin du tutorat prolongée de ${n} j (${t.date_fin} → ${nf})`);
+        }
+      } else if (inc.ref_type === 'SESSION_EXAMEN') {
+        const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(inc.ref_id);
+        if (s?.date_fin_prevue) {
+          const nf = addJours(s.date_fin_prevue, n);
+          db.prepare("UPDATE sessions_examen SET date_fin_prevue = ?, updated_at = datetime('now') WHERE id = ?").run(nf, s.id);
+          actions.push(`fin de l'évaluation prolongée de ${n} j (${s.date_fin_prevue} → ${nf})`);
+        }
+      }
+    } else if (decision === 'REPORTER' && nouvelle_date) {
+      if (inc.ref_type === 'TUTORAT') {
+        const t = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(inc.ref_id);
+        if (t?.date_debut) {
+          const delta = Math.round((Date.parse(nouvelle_date) - Date.parse(t.date_debut)) / 86400000);
+          const nf = t.date_fin ? addJours(t.date_fin, delta) : null;
+          db.prepare("UPDATE tutorat SET date_debut = ?, date_fin = COALESCE(?, date_fin), updated_at = datetime('now') WHERE id = ?")
+            .run(nouvelle_date, nf, t.id);
+          actions.push(`tutorat reporté au ${nouvelle_date} (décalage ${delta} j)`);
+        }
+      } else if (inc.ref_type === 'SESSION_EXAMEN') {
+        const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(inc.ref_id);
+        if (s?.date_demarrage) {
+          const delta = Math.round((Date.parse(nouvelle_date) - Date.parse(s.date_demarrage)) / 86400000);
+          const nf = s.date_fin_prevue ? addJours(s.date_fin_prevue, delta) : null;
+          db.prepare("UPDATE sessions_examen SET date_demarrage = ?, date_fin_prevue = COALESCE(?, date_fin_prevue), updated_at = datetime('now') WHERE id = ?")
+            .run(nouvelle_date, nf, s.id);
+          actions.push(`évaluation reportée au ${nouvelle_date} (décalage ${delta} j)`);
+        }
+      }
+    } else if (decision === 'ANNULER') {
+      if (inc.ref_type === 'SESSION_EXAMEN') {
+        db.prepare("UPDATE sessions_examen SET etat = 'ANNULE', updated_at = datetime('now') WHERE id = ?").run(inc.ref_id);
+        actions.push('évaluation liée ANNULÉE');
+      } else if (inc.ref_type === 'TUTORAT') {
+        db.prepare("UPDATE tutorat SET observations = COALESCE(observations, '') || ' [ARRÊTÉ suite à incident #' || ? || ']', updated_at = datetime('now') WHERE id = ?")
+          .run(inc.id, inc.ref_id);
+        actions.push('arrêt du tutorat documenté dans la fiche');
+      }
+    }
+  }
+
+  const LBL = { PROLONGER: `Prolongation${Number(jours) > 0 ? ` de ${Number(jours)} j` : ''}`, REPORTER: `Report${nouvelle_date ? ` au ${nouvelle_date}` : ''}`, ANNULER: 'Annulation', INTACT: 'Dates conservées' };
+  const texte = `[Décision DFIP : ${LBL[decision]}] ${resolution.trim()}${actions.length ? ` · Effets appliqués : ${actions.join(' ; ')}` : ''}`;
+  db.prepare("UPDATE incidents SET statut = 'RESOLU', resolution = ?, date_resolution = datetime('now'), updated_at = datetime('now') WHERE id = ?")
+    .run(texte, inc.id);
+
+  const signalePar = db.prepare('SELECT * FROM users WHERE id = ?').get(inc.signale_par);
+  if (signalePar) {
+    db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)')
+      .run(signalePar.id, '✅ Incident résolu — décision du DFIP', `"${inc.titre}" : ${LBL[decision]}. ${resolution.trim()}`, 'SUCCES', '/incidents');
+    sendEmail({
+      to: signalePar.email,
+      subject: '[Portail DFIP] Incident résolu — décision du Directeur',
+      html: `<p>L'incident "<strong>${inc.titre}</strong>" a été résolu.</p><p><strong>Décision : ${LBL[decision]}</strong></p><p>${resolution.trim()}</p>${actions.length ? `<p>Effets appliqués : ${actions.join(' ; ')}</p>` : ''}`,
+    });
+  }
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, 'RESOUDRE_INCIDENT', 'INCIDENTS', `#${inc.id} ${LBL[decision]}`);
+
+  res.json({ message: `Incident résolu — ${LBL[decision]}`, actions });
+});
+
 router.put('/:id/statut', auth, (req, res) => {
   const { statut, resolution } = req.body;
   const db = getDb();

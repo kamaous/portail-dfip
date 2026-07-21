@@ -20,11 +20,16 @@ const PRIORITE_STYLES = {
 
 function ModalTache({ users, onClose, onCreated }) {
   const { user } = useAuth();
-  const [form, setForm] = useState({ titre: '', description: '', priorite: 'NORMALE', assigne_a: '', date_echeance: '' });
+  const [form, setForm] = useState({ titre: '', description: '', priorite: 'NORMALE', assigne_a: [], date_echeance: '' });
   const [loading, setLoading] = useState(false);
+
+  const basculerDest = (id) => setForm(f => ({
+    ...f, assigne_a: f.assigne_a.includes(id) ? f.assigne_a.filter(x => x !== id) : [...f.assigne_a, id],
+  }));
 
   async function submit(e) {
     e.preventDefault();
+    if (form.assigne_a.length === 0) return toast.error('Sélectionnez au moins un destinataire');
     setLoading(true);
     try {
       await api.post('/taches', form);
@@ -54,24 +59,29 @@ function ModalTache({ users, onClose, onCreated }) {
             <label className="text-sm font-medium text-slate-700 block mb-1">Description</label>
             <textarea value={form.description} onChange={e => setForm(f => ({ ...f, description: e.target.value }))} rows={3} />
           </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Assigné à *</label>
-              <select value={form.assigne_a} onChange={e => setForm(f => ({ ...f, assigne_a: e.target.value }))} required>
-                <option value="">Choisir...</option>
-                {users.filter(u => u.id !== user.id).map(u => (
-                  <option key={u.id} value={u.id}>{u.prenom} {u.nom} ({u.role})</option>
-                ))}
-              </select>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">
+              Assigné à * <span className="text-xs font-normal text-slate-400">(choix multiples — {form.assigne_a.length} sélectionné(s))</span>
+            </label>
+            <div className="border border-slate-200 rounded-xl max-h-44 overflow-y-auto nav-scroll divide-y divide-slate-50">
+              {users.filter(u => u.id !== user.id).map(u => (
+                <label key={u.id} className={`flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer hover:bg-slate-50 ${form.assigne_a.includes(u.id) ? 'bg-blue-50/70' : ''}`}>
+                  <input type="checkbox" checked={form.assigne_a.includes(u.id)} onChange={() => basculerDest(u.id)}
+                    className="!w-4 !h-4 accent-[#1e3a5f] shrink-0" />
+                  <span className="text-slate-700">{u.prenom} {u.nom}</span>
+                  <span className="text-xs text-slate-400 ml-auto">{u.role_label || u.role}</span>
+                </label>
+              ))}
             </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Priorité</label>
-              <select value={form.priorite} onChange={e => setForm(f => ({ ...f, priorite: e.target.value }))}>
-                <option value="BASSE">Basse</option>
-                <option value="NORMALE">Normale</option>
-                <option value="HAUTE">Haute</option>
-              </select>
-            </div>
+            <p className="text-[11px] text-slate-400 mt-1">Une tâche sera créée et notifiée pour chaque personne sélectionnée.</p>
+          </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Priorité</label>
+            <select value={form.priorite} onChange={e => setForm(f => ({ ...f, priorite: e.target.value }))}>
+              <option value="BASSE">Basse</option>
+              <option value="NORMALE">Normale</option>
+              <option value="HAUTE">Haute</option>
+            </select>
           </div>
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Date d'échéance</label>
