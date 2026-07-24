@@ -322,6 +322,7 @@ function AjoutSalle({ onAjouter }) {
 /* ===== Onglet Simulateur ===== */
 function Simulateur({ cursus }) {
   const [plage, setPlage] = useState({ debut: '', fin: '' });
+  const [heures, setHeures] = useState({ debut: '', fin: '' });
   const [sel, setSel] = useState([]); // clés "promo|niveau|formation_id"
   const [filtre, setFiltre] = useState('');
   const [resultat, setResultat] = useState(null);
@@ -338,6 +339,7 @@ function Simulateur({ cursus }) {
         .map(c => ({ promotion_code: c.promotion_code, niveau: c.niveau, formation_id: c.formation_id }));
       const r = await api.post('/statistiques/simuler', {
         selections, date_demarrage: plage.debut || undefined, date_fin_prevue: plage.fin || undefined,
+        heure_debut: heures.debut || undefined, heure_fin: heures.fin || undefined,
       });
       setResultat(r.data);
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
@@ -349,6 +351,13 @@ function Simulateur({ cursus }) {
       <div className="card space-y-3">
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">1 · Période envisagée (optionnelle — ajoute la charge des évaluations déjà programmées)</h3>
         <PlageDates compact debut={plage.debut} fin={plage.fin} onChange={setPlage} />
+        <div className="flex items-center gap-2 text-xs">
+          <span className="text-slate-500">🕐 Créneau horaire</span>
+          <input type="time" value={heures.debut} onChange={e => setHeures(h => ({ ...h, debut: e.target.value }))} className="!w-auto !py-1 !text-xs" />
+          <span className="text-slate-400">→</span>
+          <input type="time" value={heures.fin} onChange={e => setHeures(h => ({ ...h, fin: e.target.value }))} className="!w-auto !py-1 !text-xs" />
+          <span className="text-slate-400">(vide = journée entière)</span>
+        </div>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 pt-2">2 · Cursus à évaluer simultanément ({sel.length} sélectionné(s))</h3>
         <input value={filtre} onChange={e => setFiltre(e.target.value)} placeholder="Filtrer (formation, pôle, promo...)" className="!py-1.5 !text-xs" />
         <div className="border border-slate-200 rounded-xl max-h-72 overflow-y-auto nav-scroll divide-y divide-slate-50">

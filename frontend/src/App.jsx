@@ -14,6 +14,7 @@ import Resume from './pages/Resume';
 import PlanningPublic from './pages/PlanningPublic';
 import Rapport from './pages/Rapport';
 import Statistiques from './pages/Statistiques';
+import CalendrierExamens from './pages/CalendrierExamens';
 
 // Rôles « visiteurs » : lecture seule du planning annuel uniquement
 export const ROLES_VISITEURS = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'];
@@ -61,6 +62,10 @@ function AppRoutes() {
       {/* Rapport PDF imprimable (hors mise en page du portail) */}
       <Route path="/rapport" element={
         <ProtectedRoute roles={ROLES_METIER}><Rapport /></ProtectedRoute>
+      } />
+      {/* Calendrier d'examens imprimable par cursus */}
+      <Route path="/calendrier-examens" element={
+        <ProtectedRoute roles={ROLES_METIER}><CalendrierExamens /></ProtectedRoute>
       } />
       <Route path="/statistiques" element={
         <ProtectedRoute roles={[...ROLES_METIER, 'CHARGE_SCOLARITE']}>

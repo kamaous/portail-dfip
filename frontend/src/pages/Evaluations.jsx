@@ -58,6 +58,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
     session_num: 1, type_evaluation: 'EVALUATION', date_demarrage: defaultDate || '', date_fin_prevue: '',
+    heure_debut: '', heure_fin: '',
   });
   const [plages, setPlages] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -80,8 +81,9 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
     api.post('/evaluations/check-conflit', {
       formation_id: form.formation_id, promotion_id: form.promotion_id, niveau: form.niveau,
       date_demarrage: form.date_demarrage, date_fin_prevue: form.date_fin_prevue,
+      heure_debut: form.heure_debut, heure_fin: form.heure_fin,
     }).then(r => setCapaciteLive(r.data.capacite || null)).catch(() => {});
-  }, [form.formation_id, form.promotion_id, form.niveau, form.date_demarrage, form.date_fin_prevue]);
+  }, [form.formation_id, form.promotion_id, form.niveau, form.date_demarrage, form.date_fin_prevue, form.heure_debut, form.heure_fin]);
 
   async function submit(e) {
     e.preventDefault();
@@ -157,6 +159,20 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
             <PlageDates debut={form.date_demarrage} fin={form.date_fin_prevue}
               onChange={({ debut, fin }) => setForm(f => ({ ...f, date_demarrage: debut, date_fin_prevue: fin }))} />
           </div>
+          {/* Créneau horaire quotidien : la simultanéité exacte (deux créneaux disjoints ne se cumulent pas) */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Heure de début *</label>
+              <input type="time" value={form.heure_debut} onChange={e => setForm(f => ({ ...f, heure_debut: e.target.value }))} required />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Heure de fin *</label>
+              <input type="time" value={form.heure_fin} onChange={e => setForm(f => ({ ...f, heure_fin: e.target.value }))} required />
+            </div>
+          </div>
+          <p className="text-[11px] text-slate-400 -mt-2">
+            🕐 Le créneau permet la programmation simultanée : deux évaluations aux mêmes dates mais à des heures différentes ne se cumulent pas dans les ENO.
+          </p>
           {horsPlage && <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages autorisées — l'enregistrement sera refusé.</p>}
           {capaciteLive && (
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
@@ -322,7 +338,10 @@ export default function Evaluations() {
           <h1 className="text-2xl font-bold text-slate-800">Évaluations</h1>
           <p className="text-slate-500 text-sm">{items.length} évaluation(s) · Évaluations & Devoirs · 3 sessions</p>
         </div>
-        {canCreate && <button onClick={() => { setModalDate(null); setModal(true); }} className="btn-primary flex items-center gap-2"><Plus size={16} /> Nouvelle évaluation</button>}
+        <div className="flex items-center gap-2">
+          <BoutonCalendrierPdf poles={poles} promotions={promotions} />
+          {canCreate && <button onClick={() => { setModalDate(null); setModal(true); }} className="btn-primary flex items-center gap-2"><Plus size={16} /> Nouvelle évaluation</button>}
+        </div>
       </div>
 
       {/* Segments pôles + filtres + zoom + vue */}
@@ -660,7 +679,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
         </div>
       </div>
 
-      {/* Dates (Responsable de formation) */}
+      {/* Dates + créneau horaire (Responsable pédagogique) */}
       <div className="grid grid-cols-2 gap-3 mb-3">
         {[['date_demarrage', 'Date de démarrage'], ['date_fin_prevue', 'Date de clôture']].map(([f, label]) => (
           <div key={f} className="bg-slate-50 rounded-xl px-3 py-2">
@@ -670,6 +689,18 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
             ) : <p className="text-xs font-semibold text-slate-700">{s[f] || '—'}</p>}
           </div>
         ))}
+        <div className="col-span-2 bg-slate-50 rounded-xl px-3 py-2 flex items-center gap-2">
+          <p className="text-[10px] uppercase tracking-wide text-slate-400">🕐 Créneau horaire</p>
+          {editDates ? (
+            <>
+              <input type="time" value={s.heure_debut || ''} onChange={e => update(s.id, { heure_debut: e.target.value })} className="!w-auto !py-0.5 !text-xs" />
+              <span className="text-slate-400 text-xs">→</span>
+              <input type="time" value={s.heure_fin || ''} onChange={e => update(s.id, { heure_fin: e.target.value })} className="!w-auto !py-0.5 !text-xs" />
+            </>
+          ) : (
+            <p className="text-xs font-semibold text-slate-700">{s.heure_debut ? `${s.heure_debut} → ${s.heure_fin || '—'}` : 'Journée entière'}</p>
+          )}
+        </div>
       </div>
 
       {/* Suivi — Chef de division DFE : les changements ne s'appliquent QU'AU clic « Enregistrer l'état » */}
@@ -802,6 +833,91 @@ function LigneSelect({ label, cfg, value, editable, onChange }) {
         </select>
       ) : <span className={`badge ${cfg.colors[value]}`}>{cfg.options[value]}</span>}
     </div>
+  );
+}
+
+/* Export PDF du calendrier d'examens d'un cursus (formation × promotion × niveau ± semestre ± session) */
+function BoutonCalendrierPdf({ poles, promotions }) {
+  const [open, setOpen] = useState(false);
+  const [f, setF] = useState({ formation_id: '', promotion_code: '', niveau: '', semestre: '', session: '' });
+  const formations = poles.flatMap(p => (p.formations || []).map(x => ({ ...x, pole_code: p.code })));
+  const semestres = f.niveau ? (NIVEAUX[f.niveau]?.semestres || []) : ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+
+  function generer() {
+    const qs = new URLSearchParams();
+    qs.set('formation_id', f.formation_id);
+    if (f.promotion_code) qs.set('promotion_code', f.promotion_code);
+    if (f.niveau) qs.set('niveau', f.niveau);
+    if (f.semestre) qs.set('semestre', f.semestre);
+    if (f.session) qs.set('session', f.session);
+    window.open(`/calendrier-examens?${qs}`, '_blank');
+    setOpen(false);
+  }
+
+  return (
+    <>
+      <button onClick={() => setOpen(true)} className="btn-secondary flex items-center gap-2">
+        📄 Calendrier PDF
+      </button>
+      {open && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
+            <div className="flex items-center justify-between p-5 border-b">
+              <h2 className="font-semibold text-slate-800">📄 Calendrier d'examens — export PDF</h2>
+              <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-xs text-slate-500">
+                Exemple : formation <strong>SJ</strong> · promotion <strong>P13</strong> · <strong>Semestre 1</strong> · session <strong>Normale</strong>.
+              </p>
+              <div>
+                <label className="text-sm font-medium text-slate-700 block mb-1">Formation *</label>
+                <select value={f.formation_id} onChange={e => setF(x => ({ ...x, formation_id: e.target.value }))}>
+                  <option value="">Choisir...</option>
+                  {formations.map(fo => <option key={fo.id} value={fo.id}>{fo.pole_code} — {fo.code ? `${fo.code} · ` : ''}{fo.nom}</option>)}
+                </select>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">Promotion</label>
+                  <select value={f.promotion_code} onChange={e => setF(x => ({ ...x, promotion_code: e.target.value }))}>
+                    <option value="">Toutes</option>
+                    {promotions.map(p => <option key={p.id} value={p.code}>{p.code}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">Niveau</label>
+                  <select value={f.niveau} onChange={e => setF(x => ({ ...x, niveau: e.target.value, semestre: '' }))}>
+                    <option value="">Tous</option>
+                    {Object.entries(NIVEAUX).map(([k, n]) => <option key={k} value={k}>{n.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">Semestre</label>
+                  <select value={f.semestre} onChange={e => setF(x => ({ ...x, semestre: e.target.value }))}>
+                    <option value="">Tous</option>
+                    {semestres.map(s => <option key={s} value={s}>Semestre {s.replace('S', '')}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-sm font-medium text-slate-700 block mb-1">Session</label>
+                  <select value={f.session} onChange={e => setF(x => ({ ...x, session: e.target.value }))}>
+                    <option value="">Toutes</option>
+                    <option value="1">Normale (SN)</option>
+                    <option value="2">Rattrapage (SR)</option>
+                    <option value="3">Spéciale (SS)</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button onClick={() => setOpen(false)} className="btn-secondary flex-1">Annuler</button>
+                <button onClick={generer} disabled={!f.formation_id} className="btn-primary flex-1 disabled:opacity-40">Générer le calendrier</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

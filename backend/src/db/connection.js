@@ -553,6 +553,9 @@ function runMigrations() {
   // Évaluations : demande de suppression (Chef div DFE → validation Directeur DFIP)
   addColumns('sessions_examen', { suppr_demandee: 'INTEGER NOT NULL DEFAULT 0' });
 
+  // Évaluations : créneau horaire quotidien (simultanéité exacte pour le simulateur)
+  addColumns('sessions_examen', { heure_debut: 'TEXT', heure_fin: 'TEXT' });
+
   // ===== Module STATISTIQUES : ENO, capacités, effectifs (base du simulateur d'évaluations) =====
   db.exec(`
     CREATE TABLE IF NOT EXISTS enos (

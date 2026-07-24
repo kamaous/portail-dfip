@@ -231,21 +231,29 @@ function chargeParEno(db, selections) {
   return demande;
 }
 
-function simuler(db, { selections, date_demarrage, date_fin_prevue, exclure_id }) {
+// Deux créneaux horaires quotidiens se chevauchent-ils ?
+// (heure absente d'un côté = journée entière → chevauchement)
+function chevaucheHeures(d1, f1, d2, f2) {
+  if (!d1 || !d2) return true;
+  return d1 < (f2 || '23:59') && d2 < (f1 || '23:59');
+}
+
+function simuler(db, { selections, date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id }) {
   const demande = chargeParEno(db, selections);
 
-  // Charge des évaluations déjà programmées sur la même période
+  // Charge des évaluations déjà programmées sur la même période ET le même créneau horaire
   if (date_demarrage) {
     const fin = date_fin_prevue || date_demarrage;
     const evals = db.prepare(`
-      SELECT se.id, se.formation_id, se.niveau, pr.code as promotion_code
+      SELECT se.id, se.formation_id, se.niveau, se.heure_debut, se.heure_fin, pr.code as promotion_code
       FROM sessions_examen se LEFT JOIN promotions pr ON pr.id = se.promotion_id
       WHERE se.date_demarrage IS NOT NULL
         AND se.etat NOT IN ('ANNULE', 'SUSPENDU')
         AND se.date_demarrage <= ? AND COALESCE(se.date_fin_prevue, se.date_demarrage) >= ?
         AND se.id != COALESCE(?, -1)
         AND se.formation_id IS NOT NULL AND se.niveau IS NOT NULL AND pr.code IS NOT NULL
-    `).all(fin, date_demarrage, exclure_id ?? null);
+    `).all(fin, date_demarrage, exclure_id ?? null)
+      .filter(ev => chevaucheHeures(heure_debut, heure_fin, ev.heure_debut, ev.heure_fin));
     const dejaComptees = new Set(selections.map(s => `${s.promotion_code}|${s.niveau}|${s.formation_id}`));
     for (const ev of evals) {
       const cle = `${ev.promotion_code}|${ev.niveau}|${ev.formation_id}`;
@@ -291,11 +299,11 @@ function simuler(db, { selections, date_demarrage, date_fin_prevue, exclure_id }
 }
 
 router.post('/simuler', auth, (req, res) => {
-  const { selections, date_demarrage, date_fin_prevue, exclure_id } = req.body;
+  const { selections, date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id } = req.body;
   if (!Array.isArray(selections) || selections.length === 0) {
     return res.status(400).json({ error: 'Sélectionnez au moins un cursus (promotion × niveau × formation)' });
   }
-  res.json(simuler(getDb(), { selections, date_demarrage, date_fin_prevue, exclure_id }));
+  res.json(simuler(getDb(), { selections, date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id }));
 });
 
 /* ===== Synthèse (tableau de bord Statistiques) ===== */
