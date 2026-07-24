@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, CheckSquare, BookOpen, ClipboardList,
   AlertTriangle, Bell, LogOut, Settings,
   Building2, Calendar, ClipboardCheck, CalendarOff, Video,
-  PanelLeftClose, PanelLeftOpen, GanttChartSquare, Gauge
+  PanelLeftClose, PanelLeftOpen, GanttChartSquare, Gauge, BarChart3
 } from 'lucide-react';
 
 // Rôles « visiteurs » : lecture seule du planning annuel uniquement
@@ -94,11 +94,19 @@ export default function Layout({ children }) {
               <SectionTitle open={open}>Consultation</SectionTitle>
               <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
             </>
+          ) : user?.role === 'CHARGE_SCOLARITE' ? (
+            <>
+              {/* Chargé de scolarité (ENO) : capacités de son ENO + planning */}
+              <SectionTitle open={open}>Mon ENO</SectionTitle>
+              <NavItem to="/statistiques" icon={BarChart3} label="Statistiques (ENO)" open={open} />
+              <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
+            </>
           ) : (
             <>
           <SectionTitle open={open}>Principal</SectionTitle>
           <NavItem to="/" icon={LayoutDashboard} label="Tableau de bord" end open={open} />
           <NavItem to="/resume" icon={Gauge} label="Résumé" open={open} />
+          <NavItem to="/statistiques" icon={BarChart3} label="Statistiques" open={open} />
           <NavItem to="/taches" icon={CheckSquare} label="Tâches" open={open} />
           <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
           <NavItem to="/tutorat" icon={BookOpen} label="Tutorat" open={open} />

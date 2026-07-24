@@ -13,6 +13,7 @@ import Reunions from './pages/Reunions';
 import Resume from './pages/Resume';
 import PlanningPublic from './pages/PlanningPublic';
 import Rapport from './pages/Rapport';
+import Statistiques from './pages/Statistiques';
 
 // Rôles « visiteurs » : lecture seule du planning annuel uniquement
 export const ROLES_VISITEURS = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'];
@@ -60,6 +61,11 @@ function AppRoutes() {
       {/* Rapport PDF imprimable (hors mise en page du portail) */}
       <Route path="/rapport" element={
         <ProtectedRoute roles={ROLES_METIER}><Rapport /></ProtectedRoute>
+      } />
+      <Route path="/statistiques" element={
+        <ProtectedRoute roles={[...ROLES_METIER, 'CHARGE_SCOLARITE']}>
+          <Layout><Statistiques /></Layout>
+        </ProtectedRoute>
       } />
       <Route path="/resume" element={
         <ProtectedRoute roles={ROLES_METIER}>

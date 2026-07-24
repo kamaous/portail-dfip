@@ -4,11 +4,12 @@ import toast from 'react-hot-toast';
 import { Plus, RefreshCw, UserX, UserCheck, Edit } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
+const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'CHARGE_SCOLARITE', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
 const ROLE_LABELS = {
   RECTEUR: 'Recteur', VICE_RECTEUR: 'Vice-Recteur Pédagogie', DIRECTEUR: 'Directeur DFIP',
   DIRECTEUR_DES: 'Directeur des Études et de la Scolarité (DES)',
   COORDONNATEUR: 'Coordonnateur du Projet',
+  CHARGE_SCOLARITE: 'Chargé de la Scolarité (ENO)',
   CHEF_SERVICE: 'Chef de Service', CHEF_DIV_TECHNOPEDAGOGIE: 'Chef div. Technopédagogie',
   CHEF_DIV_EVALUATION: 'Chef division DFE (Formation & Évaluations)', RESPONSABLE_POLE: 'Directeur de Pôle',
   RESPONSABLE_PEDAGOGIQUE: 'Responsable pédagogique du Pôle',
@@ -21,6 +22,7 @@ const ROLE_COLORS = {
   DIRECTEUR: 'bg-purple-100 text-purple-800',
   DIRECTEUR_DES: 'bg-fuchsia-100 text-fuchsia-800',
   COORDONNATEUR: 'bg-yellow-100 text-yellow-800',
+  CHARGE_SCOLARITE: 'bg-emerald-100 text-emerald-800',
   CHEF_SERVICE: 'bg-blue-100 text-blue-800',
   CHEF_DIV_TECHNOPEDAGOGIE: 'bg-teal-100 text-teal-800',
   CHEF_DIV_EVALUATION: 'bg-indigo-100 text-indigo-800',
@@ -34,12 +36,12 @@ const ROLE_COLORS = {
   ADMIN_PORTAIL: 'bg-red-100 text-red-800',
 };
 
-function ModalUser({ poles, user: editUser, onClose, onSaved }) {
+function ModalUser({ poles, enos = [], user: editUser, onClose, onSaved }) {
   const [form, setForm] = useState(editUser ? {
     nom: editUser.nom, prenom: editUser.prenom || '', email: editUser.email,
-    role: editUser.role, pole_id: editUser.pole_id || '', service: editUser.service || '',
+    role: editUser.role, pole_id: editUser.pole_id || '', eno_id: editUser.eno_id || '', service: editUser.service || '',
     actif: editUser.actif, password: ''
-  } : { nom: '', prenom: '', email: '', role: 'MEMBRE_POLE', pole_id: '', service: '', password: '' });
+  } : { nom: '', prenom: '', email: '', role: 'MEMBRE_POLE', pole_id: '', eno_id: '', service: '', password: '' });
   const [loading, setLoading] = useState(false);
 
   async function submit(e) {
@@ -109,6 +111,15 @@ function ModalUser({ poles, user: editUser, onClose, onSaved }) {
               </select>
             </div>
           </div>
+          {form.role === 'CHARGE_SCOLARITE' && (
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">ENO rattaché *</label>
+              <select value={form.eno_id} onChange={e => setForm(f => ({ ...f, eno_id: e.target.value }))} required>
+                <option value="">Choisir un ENO...</option>
+                {enos.map(e => <option key={e.id} value={e.id}>ENO {e.nom}</option>)}
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-sm font-medium text-slate-700 block mb-1">Service</label>
             <input type="text" value={form.service} onChange={e => setForm(f => ({ ...f, service: e.target.value }))} placeholder="Ex: Service Scolarité" />
@@ -132,10 +143,11 @@ export default function Utilisateurs() {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(null); // null | 'new' | user_object
 
+  const [enos, setEnos] = useState([]);
   function load() {
     setLoading(true);
-    Promise.all([api.get('/users'), api.get('/poles')])
-      .then(([u, p]) => { setUsers(u.data); setPoles(p.data); })
+    Promise.all([api.get('/users'), api.get('/poles'), api.get('/statistiques/eno').catch(() => ({ data: [] }))])
+      .then(([u, p, e]) => { setUsers(u.data); setPoles(p.data); setEnos(e.data); })
       .finally(() => setLoading(false));
   }
 
@@ -241,6 +253,7 @@ export default function Utilisateurs() {
       {modal && (
         <ModalUser
           poles={poles}
+          enos={enos}
           user={modal === 'new' ? null : modal}
           onClose={() => setModal(null)}
           onSaved={load}

@@ -24,6 +24,7 @@ module.exports = {
     'RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE',
     'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION',
     'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION',
+    'CHARGE_SCOLARITE',
     'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'
   ],
 
@@ -49,6 +50,7 @@ module.exports = {
     DIRECTEUR: 'Directeur DFIP',
     DIRECTEUR_DES: 'Directeur des Études et de la Scolarité (DES)',
     COORDONNATEUR: 'Coordonnateur du Projet',
+    CHARGE_SCOLARITE: 'Chargé de la Scolarité (ENO)',
     CHEF_SERVICE: 'Chef de Service',
     CHEF_DIV_TECHNOPEDAGOGIE: 'Chef division Technopédagogie',
     CHEF_DIV_EVALUATION: 'Chef division DFE (Formation & Évaluations)',

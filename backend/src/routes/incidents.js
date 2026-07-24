@@ -73,7 +73,13 @@ router.get('/:id', auth, (req, res) => {
     ORDER BY ic.created_at ASC
   `).all(req.params.id);
 
-  res.json({ ...incident, commentaires });
+  const historique = db.prepare(`
+    SELECT ih.*, u.nom, u.prenom FROM incident_historique ih
+    LEFT JOIN users u ON u.id = ih.par
+    WHERE ih.incident_id = ? ORDER BY ih.created_at DESC
+  `).all(req.params.id);
+
+  res.json({ ...incident, commentaires, historique });
 });
 
 // Types officiels d'incidents et de conséquences
@@ -169,8 +175,8 @@ router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATI
    - ANNULER   : annule l'évaluation liée (ou documente l'arrêt du tutorat)
    - INTACT    : les dates sont conservées, la décision est documentée */
 router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  const { decision, jours, nouvelle_date, resolution } = req.body;
-  if (!['PROLONGER', 'REPORTER', 'ANNULER', 'INTACT'].includes(decision)) {
+  const { decision, jours, nouvelle_date, nouvelle_fin, resolution } = req.body;
+  if (!['PROLONGER', 'REPORTER', 'ANNULER', 'SUSPENDRE', 'FIN_SEULE', 'INTACT'].includes(decision)) {
     return res.status(400).json({ error: 'Décision invalide' });
   }
   if (!resolution?.trim()) {
@@ -233,10 +239,33 @@ router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (r
           .run(inc.id, inc.ref_id);
         actions.push('arrêt du tutorat documenté dans la fiche');
       }
+    } else if (decision === 'SUSPENDRE') {
+      if (inc.ref_type === 'SESSION_EXAMEN') {
+        db.prepare("UPDATE sessions_examen SET etat = 'SUSPENDU', updated_at = datetime('now') WHERE id = ?").run(inc.ref_id);
+        actions.push('évaluation liée SUSPENDUE');
+      } else if (inc.ref_type === 'TUTORAT') {
+        db.prepare("UPDATE tutorat SET observations = COALESCE(observations, '') || ' [SUSPENDU suite à incident #' || ? || ']', updated_at = datetime('now') WHERE id = ?")
+          .run(inc.id, inc.ref_id);
+        actions.push('suspension du tutorat documentée dans la fiche');
+      }
+    } else if (decision === 'FIN_SEULE' && nouvelle_fin) {
+      if (inc.ref_type === 'TUTORAT') {
+        const t = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(inc.ref_id);
+        if (t) {
+          db.prepare("UPDATE tutorat SET date_fin = ?, updated_at = datetime('now') WHERE id = ?").run(nouvelle_fin, t.id);
+          actions.push(`fin du tutorat modifiée (${t.date_fin || '—'} → ${nouvelle_fin})`);
+        }
+      } else if (inc.ref_type === 'SESSION_EXAMEN') {
+        const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(inc.ref_id);
+        if (s) {
+          db.prepare("UPDATE sessions_examen SET date_fin_prevue = ?, updated_at = datetime('now') WHERE id = ?").run(nouvelle_fin, s.id);
+          actions.push(`fin de l'évaluation modifiée (${s.date_fin_prevue || '—'} → ${nouvelle_fin})`);
+        }
+      }
     }
   }
 
-  const LBL = { PROLONGER: `Prolongation${Number(jours) > 0 ? ` de ${Number(jours)} j` : ''}`, REPORTER: `Report${nouvelle_date ? ` au ${nouvelle_date}` : ''}`, ANNULER: 'Annulation', INTACT: 'Dates conservées' };
+  const LBL = { PROLONGER: `Prolongation${Number(jours) > 0 ? ` de ${Number(jours)} j` : ''}`, REPORTER: `Report${nouvelle_date ? ` au ${nouvelle_date}` : ''}`, ANNULER: 'Annulation', SUSPENDRE: 'Suspension', FIN_SEULE: `Nouvelle date de fin${nouvelle_fin ? ` : ${nouvelle_fin}` : ''}`, INTACT: 'Dates conservées' };
   const texte = `[Décision DFIP : ${LBL[decision]}] ${resolution.trim()}${actions.length ? ` · Effets appliqués : ${actions.join(' ; ')}` : ''}`;
   db.prepare("UPDATE incidents SET statut = 'RESOLU', resolution = ?, date_resolution = datetime('now'), updated_at = datetime('now') WHERE id = ?")
     .run(texte, inc.id);
@@ -253,6 +282,12 @@ router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (r
   }
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
     .run(req.user.id, 'RESOUDRE_INCIDENT', 'INCIDENTS', `#${inc.id} ${LBL[decision]}`);
+
+  // Historisation structurée de la décision (affichée dans la fiche incident)
+  db.prepare('INSERT INTO incident_historique (incident_id, decision, detail, avant, apres, par) VALUES (?, ?, ?, ?, ?, ?)')
+    .run(inc.id, LBL[decision], resolution.trim(),
+      actions.length ? actions.map(a => a.split('(')[1]?.split('→')[0]?.trim() || '').filter(Boolean).join(' ; ') || null : null,
+      actions.length ? actions.join(' ; ') : null, req.user.id);
 
   res.json({ message: `Incident résolu — ${LBL[decision]}`, actions });
 });

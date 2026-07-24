@@ -93,6 +93,15 @@ function auth(req, res, next) {
       return res.status(403).json({ error: 'Accès visiteur : consultation du planning annuel uniquement.' });
     }
 
+    // Chargé de la Scolarité (ENO) : module Statistiques (capacités de SON ENO) + planning en lecture
+    if (user.role === 'CHARGE_SCOLARITE') {
+      const url = req.originalUrl.split('?')[0];
+      const ok = url.startsWith('/api/auth/')
+        || url.startsWith('/api/statistiques')
+        || (req.method === 'GET' && (url.startsWith('/api/planning') || url.startsWith('/api/dashboard/annees') || url.startsWith('/api/calendrier-academique/')));
+      if (!ok) return res.status(403).json({ error: 'Accès Chargé de scolarité : module Statistiques (votre ENO) uniquement.' });
+    }
+
     next();
   } catch (err) {
     return res.status(401).json({ error: 'Token expiré ou invalide' });

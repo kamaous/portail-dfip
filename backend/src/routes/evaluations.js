@@ -36,27 +36,24 @@ function plagesEvaluations(db, annee_id, poleId) {
   `).all(annee_id, POLE_SEGMENT[pole.code] || '—', `Évaluations ${pole.code}`);
 }
 
-/* ===== Conflit inter-pôles =====
-   Règle métier : deux pôles ne doivent JAMAIS avoir des évaluations programmées
-   en simultané — ici : chevauchement des périodes démarrage → clôture. */
-function conflitsInterPoles(db, { annee_id, pole_id, date_demarrage, date_fin_prevue, exclure_id }) {
-  if (!date_demarrage) return [];
-  const fin = date_fin_prevue || date_demarrage;
-  return db.prepare(`
-    SELECT se.id, se.date_demarrage, se.date_fin_prevue, se.session_num, se.type_evaluation,
-           p.code as pole_code, p.nom as pole_nom, f.nom as formation_nom
-    FROM sessions_examen se
-    JOIN poles p ON p.id = se.pole_id
-    LEFT JOIN formations f ON f.id = se.formation_id
-    WHERE se.annee_id = ?
-      AND se.pole_id != ?
-      AND se.etat != 'ANNULE'
-      AND se.id != ?
-      AND se.date_demarrage IS NOT NULL
-      AND se.date_demarrage <= ?
-      AND COALESCE(se.date_fin_prevue, se.date_demarrage) >= ?
-    ORDER BY se.date_demarrage
-  `).all(annee_id, pole_id, exclure_id || -1, fin, date_demarrage);
+/* ===== Contrôle de CAPACITÉ des ENO (remplace l'ancien conflit inter-pôles) =====
+   Plusieurs pôles peuvent désormais évaluer simultanément : la seule contrainte
+   est la capacité physique des ENO (effectifs cumulés des évaluations qui se
+   chevauchent vs capacité de chaque ENO). Sans effectifs connus pour le cursus,
+   aucun blocage. */
+const { simuler } = require('./statistiques');
+function conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, exclure_id }) {
+  if (!date_demarrage || !formation_id || !niveau || !promotion_id) return null;
+  const promo = db.prepare('SELECT code FROM promotions WHERE id = ?').get(promotion_id);
+  if (!promo) return null;
+  const connus = db.prepare('SELECT COUNT(*) as c FROM effectifs WHERE promotion_code = ? AND niveau = ? AND formation_id = ?')
+    .get(promo.code, niveau, formation_id).c;
+  if (connus === 0) return null; // cursus sans effectifs renseignés → pas de contrôle
+  const r = simuler(db, {
+    selections: [{ promotion_code: promo.code, niveau, formation_id }],
+    date_demarrage, date_fin_prevue, exclure_id,
+  });
+  return r.faisable ? null : r;
 }
 
 function dansUnePlage(plages, d1, d2) {
@@ -124,12 +121,12 @@ router.post('/check-date', auth, (req, res) => {
   res.json(checkDateBloquee(req.body.date));
 });
 
-// POST /api/evaluations/check-conflit — pré-contrôle du conflit inter-pôles (pour l'UI)
+// POST /api/evaluations/check-conflit — pré-contrôle de CAPACITÉ des ENO (pour l'UI)
 router.post('/check-conflit', auth, (req, res) => {
   const db = getDb();
-  const { annee_id, pole_id, date_demarrage, date_fin_prevue, exclure_id } = req.body;
-  if (!annee_id || !pole_id || !date_demarrage) return res.json({ conflits: [] });
-  res.json({ conflits: conflitsInterPoles(db, { annee_id, pole_id, date_demarrage, date_fin_prevue, exclure_id }) });
+  const { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, exclure_id } = req.body;
+  if (!formation_id || !promotion_id || !niveau || !date_demarrage) return res.json({ capacite: null });
+  res.json({ capacite: conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, exclure_id }) });
 });
 
 /* ===== Création (Responsables de formation, dans les plages du planning) ===== */
@@ -154,14 +151,13 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
   const errPlage = controlePlage(db, req.user, { annee_id, pole_id, date_demarrage, date_fin_prevue });
   if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
 
-  // RÈGLE MÉTIER : jamais deux pôles en évaluation simultanément (chevauchement de périodes)
-  const conflits = conflitsInterPoles(db, { annee_id, pole_id, date_demarrage, date_fin_prevue });
-  if (conflits.length > 0) {
-    const c = conflits[0];
+  // RÈGLE MÉTIER : capacité physique des ENO (effectifs cumulés des évaluations simultanées)
+  const capa = conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue });
+  if (capa) {
+    const s = capa.satures[0];
     return res.status(409).json({
-      error: `Conflit inter-pôles : le pôle ${c.pole_code} a déjà des évaluations du ${c.date_demarrage} au ${c.date_fin_prevue || c.date_demarrage}. Deux pôles ne peuvent pas être en évaluation simultanément — changez les dates.`,
-      conflit: true,
-      conflits,
+      error: `Capacité ENO dépassée : ${capa.satures.map(x => `${x.eno} (${x.demande}/${x.capacite}, ${x.manque} places manquantes)`).join(' ; ')}. Changez les dates ou répartissez les formations sur d'autres créneaux.`,
+      conflit: true, capacite: capa,
     });
   }
 
@@ -245,19 +241,17 @@ router.put('/:id', auth, (req, res) => {
     });
     if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
 
-    // Conflit inter-pôles sur les nouvelles dates
-    const conflits = conflitsInterPoles(db, {
-      annee_id: prev.annee_id, pole_id: prev.pole_id,
+    // Capacité des ENO sur les nouvelles dates
+    const capa = conflitCapacite(db, {
+      formation_id: prev.formation_id, promotion_id: prev.promotion_id, niveau: prev.niveau,
       date_demarrage: date_demarrage ?? prev.date_demarrage,
       date_fin_prevue: date_fin_prevue ?? prev.date_fin_prevue,
       exclure_id: prev.id,
     });
-    if (conflits.length > 0) {
-      const c = conflits[0];
+    if (capa) {
       return res.status(409).json({
-        error: `Conflit inter-pôles : le pôle ${c.pole_code} a déjà des évaluations du ${c.date_demarrage} au ${c.date_fin_prevue || c.date_demarrage}. Changez les dates.`,
-        conflit: true,
-        conflits,
+        error: `Capacité ENO dépassée : ${capa.satures.map(x => `${x.eno} (${x.demande}/${x.capacite}, ${x.manque} places manquantes)`).join(' ; ')}. Changez les dates.`,
+        conflit: true, capacite: capa,
       });
     }
   }

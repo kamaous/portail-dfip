@@ -27,7 +27,7 @@ const ETAT_TUT = {
   TERMINE: ['Terminé', 'bg-green-100 text-green-700'],
 };
 const SESSION_LABEL = { 1: 'Normale', 2: 'Rattrapage', 3: 'Spéciale' };
-const STATUTS_SUIVI = ['Examen à programmer', 'Examen programmé', 'Évaluations en cours', 'Examen terminé', 'Terminé et délibéré', 'Examen annulé'];
+const STATUTS_SUIVI = ['Examen à programmer', 'Examen programmé', 'Évaluations en cours', 'Examen terminé', 'Terminé et délibéré', 'Examen suspendu', 'Examen annulé'];
 
 const progTut = progressionDates; // quota tutorat : 10 % validation + 90 % durée écoulée
 const progEval = progressionEval; // quota éval : réception 10 · date 15 · implémentation 25 · terminées 20 · délibération 30
@@ -37,6 +37,7 @@ const nomProgramme = (x) => x.formation_code || x.formation_nom || (x.pole_code 
 
 /* Statut du suivi (colonne DFIP), déduit de l'état réel de l'évaluation */
 function statutSuivi(e) {
+  if (e.etat === 'SUSPENDU') return ['Examen suspendu', 'bg-violet-100 text-violet-700'];
   if (e.etat === 'ANNULE') return ['Examen annulé', 'bg-red-100 text-red-700'];
   if (e.delib_etat === 'TERMINEE') return ['Terminé et délibéré', 'bg-green-100 text-green-700'];
   if (e.etat_eval === 'EVAL_TERMINEES') return ['Examen terminé', 'bg-emerald-100 text-emerald-700'];

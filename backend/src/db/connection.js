@@ -553,6 +553,53 @@ function runMigrations() {
   // Évaluations : demande de suppression (Chef div DFE → validation Directeur DFIP)
   addColumns('sessions_examen', { suppr_demandee: 'INTEGER NOT NULL DEFAULT 0' });
 
+  // ===== Module STATISTIQUES : ENO, capacités, effectifs (base du simulateur d'évaluations) =====
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS enos (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      nom TEXT NOT NULL UNIQUE,          -- ex: DAKAR, THIES...
+      capacite INTEGER NOT NULL DEFAULT 0, -- capacité saisie (places) ; les salles peuvent l'affiner
+      note TEXT,                          -- salles indisponibles, maintenance...
+      actif INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE TABLE IF NOT EXISTS eno_salles (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      eno_id INTEGER NOT NULL,
+      nom TEXT NOT NULL,
+      capacite INTEGER NOT NULL DEFAULT 0,
+      disponible INTEGER NOT NULL DEFAULT 1, -- 0 = indisponible / maintenance
+      note TEXT,
+      FOREIGN KEY (eno_id) REFERENCES enos(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS effectifs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      promotion_code TEXT NOT NULL,      -- P13, P12...
+      niveau TEXT NOT NULL,              -- L1..M2
+      formation_id INTEGER NOT NULL,
+      eno_id INTEGER NOT NULL,
+      nombre INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (promotion_code, niveau, formation_id, eno_id),
+      FOREIGN KEY (formation_id) REFERENCES formations(id) ON DELETE CASCADE,
+      FOREIGN KEY (eno_id) REFERENCES enos(id) ON DELETE CASCADE
+    );
+    CREATE TABLE IF NOT EXISTS incident_historique (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      incident_id INTEGER NOT NULL,
+      decision TEXT NOT NULL,
+      detail TEXT,
+      avant TEXT,
+      apres TEXT,
+      par INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (incident_id) REFERENCES incidents(id) ON DELETE CASCADE,
+      FOREIGN KEY (par) REFERENCES users(id)
+    );
+  `);
+  // Chargé de scolarité : rattaché à UN ENO
+  addColumns('users', { eno_id: 'INTEGER' });
+
   // Planning annuel : lignes (niveaux) paramétrables par segment — gérées par le Directeur DFIP
   db.exec(`
     CREATE TABLE IF NOT EXISTS planning_lignes (

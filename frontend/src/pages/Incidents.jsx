@@ -225,6 +225,7 @@ function ModalResolution({ incident, onClose, onDone }) {
   const [decision, setDecision] = useState('INTACT');
   const [jours, setJours] = useState(dureeIncident);
   const [nouvelleDate, setNouvelleDate] = useState('');
+  const [nouvelleFin, setNouvelleFin] = useState('');
   const [resolution, setResolution] = useState('');
   const [loading, setLoading] = useState(false);
   const lie = incident.ref_type === 'TUTORAT' ? 'la fiche de tutorat liée'
@@ -233,6 +234,8 @@ function ModalResolution({ incident, onClose, onDone }) {
   const DECISIONS = [
     ['PROLONGER', 'Prolonger / étendre les dates', `La date de fin ${lie ? `de ${lie}` : ''} est repoussée du nombre de jours indiqué (ex. +${dureeIncident} j si l'incident a duré ${dureeIncident} j).`],
     ['REPORTER', 'Reporter', `La période ${lie ? `de ${lie}` : ''} est décalée à partir d'une nouvelle date de début — la durée initiale est conservée.`],
+    ['FIN_SEULE', 'Modifier uniquement la fin', `Seule la date de fin ${lie ? `de ${lie}` : ''} est remplacée par la nouvelle date indiquée.`],
+    ['SUSPENDRE', 'Suspendre', incident.ref_type === 'SESSION_EXAMEN' ? "L'évaluation liée passe à l'état SUSPENDUE (reprise possible plus tard)." : incident.ref_type === 'TUTORAT' ? 'La suspension du tutorat est documentée dans la fiche.' : 'La décision de suspension est documentée.'],
     ['ANNULER', 'Annuler', incident.ref_type === 'SESSION_EXAMEN' ? "L'évaluation liée passe à l'état ANNULÉE." : incident.ref_type === 'TUTORAT' ? 'L\'arrêt du tutorat est documenté dans la fiche.' : 'La décision d\'annulation est documentée.'],
     ['INTACT', 'Garder les dates intactes', 'Aucune modification de dates — la décision et sa justification sont documentées.'],
   ];
@@ -243,6 +246,7 @@ function ModalResolution({ incident, onClose, onDone }) {
       const r = await api.post(`/incidents/${incident.id}/resoudre`, {
         decision, jours: decision === 'PROLONGER' ? Number(jours) : undefined,
         nouvelle_date: decision === 'REPORTER' ? nouvelleDate : undefined,
+        nouvelle_fin: decision === 'FIN_SEULE' ? nouvelleFin : undefined,
         resolution: resolution.trim(),
       });
       toast.success(r.data?.message || 'Incident résolu', { duration: 6000 });
@@ -291,6 +295,12 @@ function ModalResolution({ incident, onClose, onDone }) {
                     <input type="date" value={nouvelleDate} onChange={e => setNouvelleDate(e.target.value)} className="!w-auto !py-1 !text-xs" />
                   </span>
                 )}
+                {val === 'FIN_SEULE' && decision === 'FIN_SEULE' && (
+                  <span className="flex items-center gap-2 mt-2 ml-6 text-xs">
+                    Nouvelle date de fin
+                    <input type="date" value={nouvelleFin} onChange={e => setNouvelleFin(e.target.value)} className="!w-auto !py-1 !text-xs" />
+                  </span>
+                )}
               </label>
             ))}
           </div>
@@ -304,7 +314,7 @@ function ModalResolution({ incident, onClose, onDone }) {
           <div className="flex gap-2">
             <button onClick={onClose} className="btn-secondary flex-1">Annuler</button>
             <button onClick={valider}
-              disabled={loading || !resolution.trim() || (decision === 'PROLONGER' && !(Number(jours) > 0)) || (decision === 'REPORTER' && !nouvelleDate)}
+              disabled={loading || !resolution.trim() || (decision === 'PROLONGER' && !(Number(jours) > 0)) || (decision === 'REPORTER' && !nouvelleDate) || (decision === 'FIN_SEULE' && !nouvelleFin)}
               className="btn-primary flex-1 disabled:opacity-40">
               {loading ? '...' : '✓ Résoudre l\'incident'}
             </button>
@@ -391,6 +401,20 @@ function IncidentCard({ incident, onRefresh }) {
           {detail.resolution && (
             <div className="bg-green-50 border border-green-200 rounded-lg p-3 mb-3 text-sm text-green-800">
               <strong>Résolution :</strong> {detail.resolution}
+            </div>
+          )}
+          {detail.historique?.length > 0 && (
+            <div className="mb-3">
+              <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Historique des décisions</h4>
+              <div className="space-y-1.5">
+                {detail.historique.map(h => (
+                  <div key={h.id} className="bg-slate-50 border border-slate-100 rounded-lg px-3 py-2 text-xs">
+                    <p><span className="font-bold text-slate-700">{(h.created_at || '').slice(0, 16).replace('T', ' ')}</span> · <span className="badge bg-blue-100 text-blue-700 text-[10px]">{h.decision}</span> {h.prenom ? <span className="text-slate-400">par {h.prenom} {h.nom}</span> : null}</p>
+                    {h.detail && <p className="text-slate-600 mt-0.5">{h.detail}</p>}
+                    {h.apres && <p className="text-slate-500 mt-0.5">↳ {h.apres}</p>}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
           <h4 className="text-xs font-semibold text-slate-500 uppercase mb-2">Commentaires ({detail.commentaires?.length || 0})</h4>

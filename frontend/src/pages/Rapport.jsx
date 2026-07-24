@@ -12,6 +12,7 @@ const POLE_COLOR = { SEJA: '#ea580c', STN: '#16a34a', LSHE: '#6d28d9' };
 const ETAT_TUT_LBL = { PAS_DEMARRE: 'En attente', PRET: 'Prêt pour démarrage', EN_COURS: 'En cours', TERMINE: 'Terminé' };
 
 function statutSuivi(e) {
+  if (e.etat === 'SUSPENDU') return 'Suspendue';
   if (e.etat === 'ANNULE') return 'Annulée';
   if (e.delib_etat === 'TERMINEE') return 'Terminée et délibérée';
   if (e.etat_eval === 'EVAL_TERMINEES') return 'Terminée';

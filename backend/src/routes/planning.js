@@ -235,19 +235,9 @@ router.post('/', auth, (req, res) => {
   }
 
   // Une plage d'ÉVALUATIONS ne peut pas chevaucher les évaluations d'un autre pôle
-  if (type === 'EVALUATIONS') {
-    const pole = poleDuSegment(db, segment);
-    if (pole) {
-      const conflits = conflitEvalPlanning(db, { annee_id, pole_id: pole.id, date_debut, date_fin });
-      if (conflits.length > 0) {
-        const c = conflits[0];
-        return res.status(409).json({
-          error: `Conflit inter-pôles : le pôle ${c.pole_code} a déjà des évaluations du ${c.date_demarrage} au ${c.date_fin_prevue || c.date_demarrage}. Deux pôles ne peuvent pas être en évaluation simultanément.`,
-          conflit: true, conflits,
-        });
-      }
-    }
-  }
+  // Règle « conflit inter-pôles » SUPPRIMÉE (décision 24/07/2026) : plusieurs pôles
+  // peuvent évaluer simultanément — la contrainte est désormais la capacité des ENO,
+  // contrôlée au niveau du module Évaluations.
 
   const r = db.prepare(`
     INSERT INTO planning_activites (annee_id, segment, ligne, libelle, date_debut, date_fin, couleur, type, sous_type, created_by)

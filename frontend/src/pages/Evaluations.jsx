@@ -72,16 +72,16 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
   const horsPlage = plages?.length > 0 && form.date_demarrage && form.date_fin_prevue &&
     !plages.some(p => form.date_demarrage >= p.date_debut && form.date_fin_prevue <= p.date_fin);
 
-  // Pré-contrôle du conflit inter-pôles en direct
-  const [conflitsLive, setConflitsLive] = useState([]);
+  // Pré-contrôle de CAPACITÉ des ENO en direct (effectifs cumulés vs capacités)
+  const [capaciteLive, setCapaciteLive] = useState(null);
   useEffect(() => {
-    setConflitsLive([]);
-    if (!form.pole_id || !form.annee_id || !form.date_demarrage) return;
+    setCapaciteLive(null);
+    if (!form.formation_id || !form.promotion_id || !form.niveau || !form.date_demarrage) return;
     api.post('/evaluations/check-conflit', {
-      annee_id: form.annee_id, pole_id: form.pole_id,
+      formation_id: form.formation_id, promotion_id: form.promotion_id, niveau: form.niveau,
       date_demarrage: form.date_demarrage, date_fin_prevue: form.date_fin_prevue,
-    }).then(r => setConflitsLive(r.data.conflits || [])).catch(() => {});
-  }, [form.pole_id, form.annee_id, form.date_demarrage, form.date_fin_prevue]);
+    }).then(r => setCapaciteLive(r.data.capacite || null)).catch(() => {});
+  }, [form.formation_id, form.promotion_id, form.niveau, form.date_demarrage, form.date_fin_prevue]);
 
   async function submit(e) {
     e.preventDefault();
@@ -158,11 +158,11 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
               onChange={({ debut, fin }) => setForm(f => ({ ...f, date_demarrage: debut, date_fin_prevue: fin }))} />
           </div>
           {horsPlage && <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages autorisées — l'enregistrement sera refusé.</p>}
-          {conflitsLive.length > 0 && (
+          {capaciteLive && (
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
-              ⛔ <strong>Conflit inter-pôles détecté :</strong> le pôle <strong>{conflitsLive[0].pole_code}</strong> a déjà
-              des évaluations du {conflitsLive[0].date_demarrage} au {conflitsLive[0].date_fin_prevue || conflitsLive[0].date_demarrage}.
-              Deux pôles ne peuvent pas être en évaluation simultanément — changez les dates.
+              ⛔ <strong>Capacité des ENO dépassée sur cette période :</strong>{' '}
+              {capaciteLive.satures.map(s => `${s.eno} (${s.demande}/${s.capacite}, manque ${s.manque})`).join(' · ')}.
+              L'enregistrement sera refusé — changez les dates ou répartissez sur d'autres créneaux.
             </div>
           )}
 
@@ -473,7 +473,7 @@ export default function Evaluations() {
                 // Format : Promotion - Formation Niveau Semestre Session (ex : P10 - ANG L3 S5 SN)
                 return {
                   debut: s.date_demarrage, fin,
-                  color: s.etat === 'ANNULE' ? '#dc2626' : (ETAT_BAR[s.etat_eval] || seg.color),
+                  color: s.etat === 'ANNULE' ? '#dc2626' : s.etat === 'SUSPENDU' ? '#7c3aed' : (ETAT_BAR[s.etat_eval] || seg.color),
                   label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${!segment ? `${s.pole_code} · ` : ''}${s.promotion_code || '?'} - ${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
                   titre: `${s.pole_code} — Promotion ${s.promotion_code || '?'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
                   onClick: () => setDetailId(s.id),
@@ -537,28 +537,30 @@ export default function Evaluations() {
           }} />
       )}
 
-      {/* Popup explicite : conflit d'examens entre pôles */}
+      {/* Popup explicite : capacité des ENO dépassée */}
       {conflitInfo && (
         <div className="fixed inset-0 bg-black/50 z-[60] flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
             <div className="bg-red-600 text-white px-5 py-4">
-              <h2 className="font-bold text-lg">⛔ Conflit d'examens entre pôles</h2>
-              <p className="text-red-100 text-xs mt-0.5">Deux pôles ne peuvent jamais être en évaluation simultanément.</p>
+              <h2 className="font-bold text-lg">⛔ Capacité des ENO dépassée</h2>
+              <p className="text-red-100 text-xs mt-0.5">Les effectifs cumulés des évaluations simultanées excèdent les places disponibles.</p>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-sm text-slate-700">{conflitInfo.error}</p>
-              <div className="bg-red-50 border border-red-100 rounded-xl divide-y divide-red-100">
-                {(conflitInfo.conflits || []).map(c => (
-                  <div key={c.id} className="px-3 py-2 text-xs">
-                    <p className="font-bold text-red-800">{c.pole_nom}</p>
-                    <p className="text-slate-600">
-                      {c.formation_nom || 'Formation —'} · {c.type_evaluation === 'DEVOIR' ? 'Devoir' : 'Examen'} · Session {c.session_num}
-                    </p>
-                    <p className="text-red-700 font-semibold">📅 {c.date_demarrage} → {c.date_fin_prevue || c.date_demarrage}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="text-xs text-slate-500">Choisissez une autre période pour valider cette évaluation.</p>
+              {conflitInfo.capacite?.satures?.length > 0 && (
+                <div className="bg-red-50 border border-red-100 rounded-xl divide-y divide-red-100">
+                  {conflitInfo.capacite.satures.map((s, i) => (
+                    <div key={i} className="px-3 py-2 text-xs flex items-center gap-2">
+                      <span className="font-bold text-red-800 flex-1">ENO {s.eno}</span>
+                      <span className="text-slate-600">{s.demande} étudiants / {s.capacite} places</span>
+                      <span className="badge bg-red-600 text-white text-[10px]">−{s.manque}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="text-xs text-slate-500">
+                💡 Décalez vers un autre créneau ou un autre jour, ou utilisez le <strong>Simulateur</strong> du module Statistiques pour trouver une répartition faisable.
+              </p>
               <button onClick={() => setConflitInfo(null)} className="btn-danger w-full">J'ai compris — je change la date</button>
             </div>
           </div>
@@ -647,6 +649,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
         <div className="flex items-center justify-between mb-1">
           <p className="text-[10px] font-bold uppercase tracking-wider text-slate-400">Progression</p>
           <div className="flex items-center gap-2">
+            {s.etat === 'SUSPENDU' && <span className="badge bg-violet-100 text-violet-700 text-[10px]">⏸ Suspendue</span>}
             {verrouDelib && <span className="badge bg-purple-100 text-purple-700 text-[10px]" title="Délibération effective — modifiable uniquement par le Directeur DFIP">🔒 Clôturée</span>}
             <span className="text-xs font-bold text-slate-600">{Math.round(pct * 100)}%</span>
           </div>

@@ -63,7 +63,7 @@ router.get('/visites', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, re
 
 // POST /api/users — créer un utilisateur (ADMIN + DIRECTEUR)
 router.post('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  const { nom, prenom, email, role, pole_id, service, password } = req.body;
+  const { nom, prenom, email, role, pole_id, eno_id, service, password } = req.body;
   if (!nom || !email || !role) return res.status(400).json({ error: 'Champs requis manquants' });
 
   const tmpPassword = password || `UnCHK@${Math.floor(1000 + Math.random() * 9000)}`;
@@ -72,9 +72,9 @@ router.post('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => 
 
   try {
     const result = db.prepare(`
-      INSERT INTO users (nom, prenom, email, password_hash, role, pole_id, service)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-    `).run(nom, prenom || '', email.toLowerCase().trim(), hash, role, pole_id || null, service || null);
+      INSERT INTO users (nom, prenom, email, password_hash, role, pole_id, eno_id, service)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(nom, prenom || '', email.toLowerCase().trim(), hash, role, pole_id || null, eno_id || null, service || null);
 
     const newUser = db.prepare('SELECT * FROM users WHERE id = ?').get(result.lastInsertRowid);
 
@@ -99,7 +99,7 @@ router.post('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => 
 
 // PUT /api/users/:id — modifier un utilisateur (TOUS les champs, email et mot de passe inclus)
 router.put('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  const { nom, prenom, email, role, pole_id, service, actif, password } = req.body;
+  const { nom, prenom, email, role, pole_id, eno_id, service, actif, password } = req.body;
   const db = getDb();
 
   const prev = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
@@ -122,10 +122,10 @@ router.put('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) =
   }
 
   db.prepare(`
-    UPDATE users SET nom=?, prenom=?, email=?, role=?, pole_id=?, service=?, actif=?, updated_at=datetime('now')
+    UPDATE users SET nom=?, prenom=?, email=?, role=?, pole_id=?, eno_id=?, service=?, actif=?, updated_at=datetime('now')
     WHERE id=?
   `).run(nom ?? prev.nom, prenom ?? prev.prenom ?? '', nouvelEmail, role || prev.role,
-    pole_id || null, service || null, actif !== undefined ? actif : 1, req.params.id);
+    pole_id || null, eno_id !== undefined ? (eno_id || null) : prev.eno_id, service || null, actif !== undefined ? actif : 1, req.params.id);
 
   if (mdp) {
     db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?")
