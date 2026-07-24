@@ -1,21 +1,79 @@
 import { useEffect, useMemo, useState } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { BarChart3, Building2, Users, FlaskConical, Plus, Trash2, RefreshCw } from 'lucide-react';
+import { BarChart3, Building2, Users, FlaskConical, Plus, Trash2, RefreshCw, LayoutGrid, FileDown } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import PlageDates from '../components/PlageDates';
 
 /* Module STATISTIQUES — base d'aide à la programmation des évaluations :
-   ENO & capacités · effectifs par formation/ENO (fichier DES) · simulateur */
+   ENO & capacités · effectifs par formation/ENO (fichier DES) · simulateur.
+   Chaque onglet dispose de SEGMENTS (pôle, promotion, niveau...) et d'un EXPORT CSV. */
 
 const POLE_COLOR = { SEJA: '#ea580c', STN: '#16a34a', LSHE: '#6d28d9' };
+const POLE_LIGHT = { SEJA: '#fdeee3', STN: '#e8f6ec', LSHE: '#f0e9fb' };
 const NIVEAUX_L = ['L1', 'L2', 'L3', 'M1', 'M2'];
 
-function Barres({ titre, data, suffixe = '' }) {
+/* Export CSV compatible Excel (BOM UTF-8, séparateur ;) */
+function telechargerCSV(nomFichier, lignes) {
+  const csv = '﻿' + lignes.map(l => l.map(c => {
+    const s = String(c ?? '');
+    return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+  }).join(';')).join('\n');
+  const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
+  const a = document.createElement('a');
+  a.href = url; a.download = nomFichier; a.click();
+  URL.revokeObjectURL(url);
+}
+
+function BoutonExport({ onClick, label = 'Export CSV' }) {
+  return (
+    <button onClick={onClick} className="btn-secondary !py-1.5 !px-3 !text-xs flex items-center gap-1.5 !text-green-700 !border-green-200 hover:!bg-green-50">
+      <FileDown size={13} /> {label}
+    </button>
+  );
+}
+
+/* Segments pôles cliquables (même style que les autres modules) */
+function SegmentsPoles({ segment, setSegment, compteur }) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <button onClick={() => setSegment(null)}
+        className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition-all ${segment === null ? 'bg-slate-800 text-white border-slate-800 shadow' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
+        <LayoutGrid size={13} /> Tous les pôles
+      </button>
+      {['SEJA', 'STN', 'LSHE'].map(p => {
+        const actif = segment === p;
+        return (
+          <button key={p} onClick={() => setSegment(actif ? null : p)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold border-2 transition-all ${actif ? 'text-white shadow scale-105' : 'bg-white hover:scale-[1.02]'}`}
+            style={actif ? { background: POLE_COLOR[p], borderColor: POLE_COLOR[p] } : { color: POLE_COLOR[p], borderColor: `${POLE_COLOR[p]}55` }}>
+            <span className="w-2 h-2 rounded-full" style={{ background: actif ? '#fff' : POLE_COLOR[p] }} />
+            {p}
+            {compteur && <span className={`text-[10px] px-1.5 rounded-full font-bold ${actif ? 'bg-white/25' : 'bg-slate-100 text-slate-500'}`}>{compteur(p)}</span>}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function Filtre({ value, onChange, children }) {
+  return (
+    <select value={value} onChange={e => onChange(e.target.value)}
+      className={`!w-auto !py-1.5 !text-xs ${value ? '!border-blue-400 !bg-blue-50 font-semibold' : ''}`}>
+      {children}
+    </select>
+  );
+}
+
+function Barres({ titre, data, suffixe = '', action }) {
   const max = Math.max(1, ...data.map(d => d.value));
   return (
     <div className="card">
-      <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 mb-3">{titre}</h3>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500">{titre}</h3>
+        {action}
+      </div>
       <div className="space-y-1.5">
         {data.map((d, i) => (
           <div key={i} className="flex items-center gap-2 text-xs">
@@ -38,7 +96,7 @@ export default function Statistiques() {
   const estCharge = user?.role === 'CHARGE_SCOLARITE';
 
   const [onglet, setOnglet] = useState(estCharge ? 'ENO' : 'SYNTHESE');
-  const [synthese, setSynthese] = useState(null);
+  const [effectifs, setEffectifs] = useState([]);   // toutes les lignes (formation × ENO × promo × niveau)
   const [enos, setEnos] = useState([]);
   const [cursus, setCursus] = useState([]);
   const [poles, setPoles] = useState([]);
@@ -47,12 +105,12 @@ export default function Statistiques() {
   function load() {
     setLoading(true);
     Promise.all([
-      api.get('/statistiques/synthese').catch(() => ({ data: null })),
+      api.get('/statistiques/effectifs').catch(() => ({ data: [] })),
       api.get('/statistiques/eno'),
       api.get('/statistiques/cursus').catch(() => ({ data: [] })),
       api.get('/poles').catch(() => ({ data: [] })),
-    ]).then(([s, e, c, p]) => {
-      setSynthese(s.data); setEnos(e.data); setCursus(c.data); setPoles(p.data);
+    ]).then(([ef, e, c, p]) => {
+      setEffectifs(ef.data); setEnos(e.data); setCursus(c.data); setPoles(p.data);
     }).finally(() => setLoading(false));
   }
   useEffect(load, []);
@@ -85,25 +143,90 @@ export default function Statistiques() {
         ))}
       </div>
 
-      {onglet === 'SYNTHESE' && synthese && <Synthese s={synthese} />}
-      {onglet === 'EFFECTIFS' && <Effectifs poles={poles} enos={enos} estGestion={estGestion} />}
+      {onglet === 'SYNTHESE' && <Synthese effectifs={effectifs} enos={enos} />}
+      {onglet === 'EFFECTIFS' && <Effectifs enos={enos} estGestion={estGestion} />}
       {onglet === 'ENO' && <GestionEno enos={enos} estGestion={estGestion} estCharge={estCharge} monEno={user?.eno_id} onChange={load} />}
       {onglet === 'SIMULATEUR' && <Simulateur cursus={cursus} />}
     </div>
   );
 }
 
-/* ===== Onglet Tableau de bord ===== */
-function Synthese({ s }) {
+/* ===== Onglet Tableau de bord : calculé en direct, SEGMENTABLE, exportable ===== */
+function Synthese({ effectifs, enos }) {
+  const [segment, setSegment] = useState(null);   // pôle
+  const [fPromo, setFPromo] = useState('');
+  const [fNiveau, setFNiveau] = useState('');
+
+  const promos = useMemo(() => [...new Set(effectifs.map(r => r.promotion_code))].sort().reverse(), [effectifs]);
+  const rows = useMemo(() => effectifs.filter(r =>
+    (!segment || r.pole_code === segment) &&
+    (!fPromo || r.promotion_code === fPromo) &&
+    (!fNiveau || r.niveau === fNiveau)), [effectifs, segment, fPromo, fNiveau]);
+
+  const somme = (arr) => arr.reduce((s, r) => s + r.nombre, 0);
+  const grouper = (cle) => {
+    const m = new Map();
+    rows.forEach(r => m.set(cle(r), (m.get(cle(r)) || 0) + r.nombre));
+    return [...m.entries()].sort((a, b) => b[1] - a[1]);
+  };
+
+  const total = somme(rows);
+  const parEno = grouper(r => r.eno_nom);
+  const parPole = grouper(r => r.pole_code || '—');
+  const parPromo = grouper(r => `${r.promotion_code} ${r.niveau}`);
+  const topFormations = grouper(r => `${r.formation_code || r.formation_nom} (${r.pole_code || '—'})`).slice(0, 10);
+  const capTotale = enos.reduce((s, e) => s + e.capacite_effective, 0);
+
   const kpi = [
-    ['Étudiants', s.kpi.total_etudiants.toLocaleString('fr-FR')],
-    ['Formations', s.kpi.nb_formations],
-    ['Cursus (promo × niveau)', s.kpi.nb_cursus],
-    ['ENO', s.kpi.nb_enos],
-    ['Capacité totale', s.kpi.capacite_totale.toLocaleString('fr-FR') + ' places'],
+    ['Étudiants', total.toLocaleString('fr-FR')],
+    ['Formations', new Set(rows.map(r => r.formation_id)).size],
+    ['Cursus (promo × niveau)', new Set(rows.map(r => `${r.promotion_code}|${r.niveau}|${r.formation_id}`)).size],
+    ['ENO', enos.length],
+    ['Capacité totale', capTotale.toLocaleString('fr-FR') + ' pl.'],
   ];
+
+  function exporter() {
+    const contexte = [segment && `Pôle ${segment}`, fPromo, fNiveau].filter(Boolean).join(' · ') || 'Toutes données';
+    telechargerCSV(`statistiques_synthese_${new Date().toISOString().slice(0, 10)}.csv`, [
+      [`Synthèse Statistiques — ${contexte}`],
+      [],
+      ['ÉTUDIANTS PAR ENO'], ['ENO', 'Étudiants', 'Capacité', 'Pression (étud./place)'],
+      ...parEno.map(([eno, v]) => {
+        const cap = enos.find(e => e.nom === eno)?.capacite_effective || 0;
+        return [eno, v, cap, cap ? (v / cap).toFixed(1) : '—'];
+      }),
+      [],
+      ['ÉTUDIANTS PAR PÔLE'], ['Pôle', 'Étudiants'], ...parPole,
+      [],
+      ['PAR PROMOTION / NIVEAU'], ['Cursus', 'Étudiants'], ...parPromo,
+      [],
+      ['TOP FORMATIONS'], ['Formation', 'Étudiants'], ...topFormations,
+    ]);
+  }
+
   return (
     <>
+      <div className="card !p-3 space-y-2.5">
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentsPoles segment={segment} setSegment={setSegment}
+            compteur={(p) => effectifs.filter(r => r.pole_code === p && (!fPromo || r.promotion_code === fPromo) && (!fNiveau || r.niveau === fNiveau)).reduce((s, r) => s + r.nombre, 0).toLocaleString('fr-FR')} />
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <Filtre value={fPromo} onChange={setFPromo}>
+              <option value="">Toutes promotions</option>
+              {promos.map(p => <option key={p}>{p}</option>)}
+            </Filtre>
+            <Filtre value={fNiveau} onChange={setFNiveau}>
+              <option value="">Tous niveaux</option>
+              {NIVEAUX_L.map(n => <option key={n}>{n}</option>)}
+            </Filtre>
+            {(segment || fPromo || fNiveau) && (
+              <button onClick={() => { setSegment(null); setFPromo(''); setFNiveau(''); }} className="text-xs text-blue-600 hover:underline">Réinitialiser</button>
+            )}
+            <BoutonExport onClick={exporter} />
+          </div>
+        </div>
+      </div>
+
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
         {kpi.map(([l, v]) => (
           <div key={l} className="card text-center py-4">
@@ -113,22 +236,24 @@ function Synthese({ s }) {
         ))}
       </div>
       <div className="grid lg:grid-cols-2 gap-4">
-        <Barres titre="Étudiants par ENO" data={s.par_eno.map(e => ({ label: e.eno, value: e.total }))} />
+        <Barres titre="Étudiants par ENO" data={parEno.map(([l, v]) => ({ label: l, value: v }))} />
         <div className="space-y-4">
-          <Barres titre="Étudiants par pôle" data={s.par_pole.map(p => ({ label: p.pole, value: p.total, color: POLE_COLOR[p.pole] || '#1e3a5f' }))} />
-          <Barres titre="Par promotion / niveau" data={s.par_promo.map(p => ({ label: `${p.promo} ${p.niveau}`, value: p.total }))} />
+          <Barres titre="Étudiants par pôle" data={parPole.map(([l, v]) => ({ label: l, value: v, color: POLE_COLOR[l] || '#1e3a5f' }))} />
+          <Barres titre="Par promotion / niveau" data={parPromo.map(([l, v]) => ({ label: l, value: v }))} />
         </div>
-        <Barres titre="Top 10 des formations" data={s.top_formations.map(f => ({ label: `${f.formation} (${f.pole || '—'})`, value: f.total, color: POLE_COLOR[f.pole] || '#1e3a5f' }))} />
-        <Barres titre="Capacité des ENO (places)" data={s.enos.map(e => ({ label: e.nom, value: e.capacite_effective, color: '#0d9488' }))} />
+        <Barres titre="Top 10 des formations" data={topFormations.map(([l, v]) => ({ label: l, value: v, color: POLE_COLOR[(l.match(/\((\w+)\)$/) || [])[1]] || '#1e3a5f' }))} />
+        <Barres titre="Capacité des ENO (places)" data={enos.map(e => ({ label: e.nom, value: e.capacite_effective, color: '#0d9488' }))} />
       </div>
     </>
   );
 }
 
-/* ===== Onglet Effectifs (matrice formation × ENO, éditable par le DES) ===== */
-function Effectifs({ poles, enos, estGestion }) {
+/* ===== Onglet Effectifs : segments pôle + promo/niveau + recherche + export ===== */
+function Effectifs({ enos, estGestion }) {
   const [promo, setPromo] = useState('P13');
   const [niveau, setNiveau] = useState('L1');
+  const [segment, setSegment] = useState(null);
+  const [recherche, setRecherche] = useState('');
   const [rows, setRows] = useState([]);
   const [promos, setPromos] = useState([]);
 
@@ -139,9 +264,12 @@ function Effectifs({ poles, enos, estGestion }) {
 
   const formations = useMemo(() => {
     const m = new Map();
-    rows.forEach(r => m.set(r.formation_id, { id: r.formation_id, code: r.formation_code || r.formation_nom, pole: r.pole_code }));
-    return [...m.values()].sort((a, b) => (a.pole || '').localeCompare(b.pole || '') || a.code.localeCompare(b.code));
-  }, [rows]);
+    rows.forEach(r => m.set(r.formation_id, { id: r.formation_id, code: r.formation_code || r.formation_nom, nom: r.formation_nom, pole: r.pole_code }));
+    return [...m.values()]
+      .filter(f => (!segment || f.pole === segment)
+        && (!recherche || `${f.code} ${f.nom}`.toLowerCase().includes(recherche.toLowerCase())))
+      .sort((a, b) => (a.pole || '').localeCompare(b.pole || '') || a.code.localeCompare(b.code));
+  }, [rows, segment, recherche]);
   const val = (fId, eId) => rows.find(r => r.formation_id === fId && r.eno_id === eId)?.nombre ?? '';
 
   async function maj(fId, eId, nombre) {
@@ -155,17 +283,33 @@ function Effectifs({ poles, enos, estGestion }) {
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
 
+  function exporter() {
+    telechargerCSV(`effectifs_${promo}_${niveau}${segment ? `_${segment}` : ''}.csv`, [
+      [`Effectifs ${promo} ${niveau}${segment ? ` — Pôle ${segment}` : ''}`],
+      ['Formation', 'Pôle', ...enos.map(e => e.nom), 'Total'],
+      ...formations.map(f => {
+        const vals = enos.map(e => val(f.id, e.id) || 0);
+        return [f.code, f.pole || '', ...vals, vals.reduce((s, v) => s + Number(v), 0)];
+      }),
+      ['CAPACITÉ', '', ...enos.map(e => e.capacite_effective), enos.reduce((s, e) => s + e.capacite_effective, 0)],
+    ]);
+  }
+
   return (
     <div className="card !p-0 overflow-hidden">
-      <div className="p-4 flex flex-wrap items-center gap-2 border-b border-slate-100">
-        <span className="text-xs font-bold uppercase tracking-wide text-slate-400">Effectifs par formation et par ENO</span>
-        <div className="ml-auto flex gap-2">
-          <select value={promo} onChange={e => setPromo(e.target.value)} className="!w-auto !py-1.5 !text-xs">
-            {[...new Set(['P13', 'P12', 'P11', 'P10', 'P8', 'P7', ...promos.map(p => p.code)])].sort().reverse().map(p => <option key={p}>{p}</option>)}
-          </select>
-          <select value={niveau} onChange={e => setNiveau(e.target.value)} className="!w-auto !py-1.5 !text-xs">
-            {NIVEAUX_L.map(n => <option key={n}>{n}</option>)}
-          </select>
+      <div className="p-4 space-y-2.5 border-b border-slate-100">
+        <div className="flex flex-wrap items-center gap-3">
+          <SegmentsPoles segment={segment} setSegment={setSegment} />
+          <div className="ml-auto flex items-center gap-2 flex-wrap">
+            <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="🔎 Formation..." className="!w-36 !py-1.5 !text-xs" />
+            <Filtre value={promo} onChange={setPromo}>
+              {[...new Set(['P13', 'P12', 'P11', 'P10', 'P8', 'P7', ...promos.map(p => p.code)])].sort().reverse().map(p => <option key={p}>{p}</option>)}
+            </Filtre>
+            <Filtre value={niveau} onChange={setNiveau}>
+              {NIVEAUX_L.map(n => <option key={n}>{n}</option>)}
+            </Filtre>
+            <BoutonExport onClick={exporter} />
+          </div>
         </div>
       </div>
       <div className="overflow-x-auto nav-scroll">
@@ -181,8 +325,8 @@ function Effectifs({ poles, enos, estGestion }) {
             {formations.map(f => {
               const total = rows.filter(r => r.formation_id === f.id).reduce((s, r) => s + r.nombre, 0);
               return (
-                <tr key={f.id} className="border-b border-slate-50 hover:bg-slate-50/50">
-                  <td className="px-3 py-1.5 font-semibold sticky left-0 bg-white z-10" style={{ color: POLE_COLOR[f.pole] || '#334155' }}>
+                <tr key={f.id} className="border-b border-slate-50 hover:bg-slate-50/50" style={segment ? { background: `${POLE_LIGHT[f.pole]}55` } : undefined}>
+                  <td className="px-3 py-1.5 font-semibold sticky left-0 bg-white z-10" style={{ color: POLE_COLOR[f.pole] || '#334155' }} title={f.nom}>
                     {f.code} <span className="text-slate-400 font-normal">({f.pole})</span>
                   </td>
                   {enos.map(e => (
@@ -198,7 +342,7 @@ function Effectifs({ poles, enos, estGestion }) {
                 </tr>
               );
             })}
-            {formations.length === 0 && <tr><td colSpan={enos.length + 2} className="px-3 py-8 text-center text-slate-400">Aucun effectif pour {promo} {niveau}</td></tr>}
+            {formations.length === 0 && <tr><td colSpan={enos.length + 2} className="px-3 py-8 text-center text-slate-400">Aucun effectif pour ces critères</td></tr>}
           </tbody>
         </table>
       </div>
@@ -207,9 +351,11 @@ function Effectifs({ poles, enos, estGestion }) {
   );
 }
 
-/* ===== Onglet ENO & capacités ===== */
+/* ===== Onglet ENO & capacités : recherche + export ===== */
 function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
   const [nouveau, setNouveau] = useState('');
+  const [recherche, setRecherche] = useState('');
+  const visibles = enos.filter(e => !recherche || e.nom.toLowerCase().includes(recherche.toLowerCase()));
 
   async function ajouterEno() {
     if (!nouveau.trim()) return;
@@ -224,17 +370,29 @@ function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
     try { await api.post(`/statistiques/eno/${e.id}/salles`, { nom, capacite }); toast.success('Salle ajoutée'); onChange(); }
     catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
+  function exporter() {
+    telechargerCSV(`eno_capacites_${new Date().toISOString().slice(0, 10)}.csv`, [
+      ['ENO', 'Capacité globale', 'Capacité effective', 'Nb salles', 'Salles (nom : places : dispo)', 'Note', 'Actif'],
+      ...enos.map(e => [e.nom, e.capacite, e.capacite_effective, e.salles.length,
+        e.salles.map(s => `${s.nom} : ${s.capacite} : ${s.disponible ? 'oui' : 'NON'}`).join(' | '), e.note || '', e.actif ? 'oui' : 'non']),
+      ['TOTAL', '', enos.reduce((s, e) => s + e.capacite_effective, 0)],
+    ]);
+  }
 
   return (
     <div className="space-y-4">
-      {estGestion && (
-        <div className="card flex items-center gap-2">
-          <input value={nouveau} onChange={e => setNouveau(e.target.value)} placeholder="Nouvel ENO (ex : FATICK)" className="flex-1 !py-2" />
-          <button onClick={ajouterEno} className="btn-primary !py-2 flex items-center gap-1.5"><Plus size={15} /> Ajouter</button>
-        </div>
-      )}
+      <div className="card flex items-center gap-2 flex-wrap">
+        {estGestion && (
+          <>
+            <input value={nouveau} onChange={e => setNouveau(e.target.value)} placeholder="Nouvel ENO (ex : FATICK)" className="flex-1 min-w-40 !py-2" />
+            <button onClick={ajouterEno} className="btn-primary !py-2 flex items-center gap-1.5"><Plus size={15} /> Ajouter</button>
+          </>
+        )}
+        <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="🔎 Rechercher un ENO..." className={`!py-2 ${estGestion ? '!w-48' : 'flex-1'}`} />
+        <BoutonExport onClick={exporter} />
+      </div>
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
-        {enos.map(e => {
+        {visibles.map(e => {
           const editable = estGestion || (estCharge && monEno === e.id);
           return (
             <div key={e.id} className={`card ${estCharge && monEno === e.id ? 'ring-2 ring-teal-400' : ''} ${!e.actif ? 'opacity-50' : ''}`}>
@@ -261,7 +419,6 @@ function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
                 </div>
               ) : e.note ? <p className="text-xs text-amber-600">⚠ {e.note}</p> : null}
 
-              {/* Salles */}
               <div className="mt-2 pt-2 border-t border-slate-100 space-y-1">
                 {e.salles.map(s => (
                   <SalleLigne key={s.id} salle={s} editable={editable} onChange={onChange} />
@@ -319,18 +476,25 @@ function AjoutSalle({ onAjouter }) {
   );
 }
 
-/* ===== Onglet Simulateur ===== */
+/* ===== Onglet Simulateur : segments pôle/promo/niveau sur la liste + export du résultat ===== */
 function Simulateur({ cursus }) {
   const [plage, setPlage] = useState({ debut: '', fin: '' });
   const [heures, setHeures] = useState({ debut: '', fin: '' });
   const [sel, setSel] = useState([]); // clés "promo|niveau|formation_id"
   const [filtre, setFiltre] = useState('');
+  const [segment, setSegment] = useState(null);
+  const [fPromo, setFPromo] = useState('');
+  const [fNiveau, setFNiveau] = useState('');
   const [resultat, setResultat] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  const promos = useMemo(() => [...new Set(cursus.map(c => c.promotion_code))].sort().reverse(), [cursus]);
   const cle = (c) => `${c.promotion_code}|${c.niveau}|${c.formation_id}`;
   const visibles = cursus.filter(c =>
-    !filtre || `${c.promotion_code} ${c.niveau} ${c.formation_code} ${c.formation_nom} ${c.pole_code}`.toLowerCase().includes(filtre.toLowerCase()));
+    (!segment || c.pole_code === segment) &&
+    (!fPromo || c.promotion_code === fPromo) &&
+    (!fNiveau || c.niveau === fNiveau) &&
+    (!filtre || `${c.promotion_code} ${c.niveau} ${c.formation_code} ${c.formation_nom} ${c.pole_code}`.toLowerCase().includes(filtre.toLowerCase())));
 
   async function lancer() {
     setLoading(true);
@@ -346,6 +510,21 @@ function Simulateur({ cursus }) {
     finally { setLoading(false); }
   }
 
+  function exporterResultat() {
+    if (!resultat) return;
+    const cursusSel = cursus.filter(c => sel.includes(cle(c))).map(c => `${c.formation_code || c.formation_nom} ${c.promotion_code} ${c.niveau}`).join(' + ');
+    telechargerCSV(`simulation_${new Date().toISOString().slice(0, 10)}.csv`, [
+      [`Simulation d'évaluations — ${cursusSel}`],
+      [`Période : ${plage.debut || '—'} → ${plage.fin || '—'}`, `Créneau : ${heures.debut || 'journée'} → ${heures.fin || ''}`],
+      [`Résultat : ${resultat.faisable ? 'FAISABLE' : 'IMPOSSIBLE'}`, `Total étudiants : ${resultat.total_demande}`],
+      [],
+      ['ENO', 'Étudiants', 'Capacité', 'Résultat', 'Places manquantes', 'Détail'],
+      ...resultat.enos.map(r => [r.eno, r.demande, r.capacite_inconnue ? '?' : r.capacite,
+        r.capacite_inconnue ? 'capacité inconnue' : r.ok ? 'OK' : 'DÉPASSEMENT', r.manque || '',
+        r.detail.map(d => `${d.formation} (${d.cursus}${d.deja_programmee ? ' — programmée' : ''}) : ${d.nombre}`).join(' | ')]),
+    ]);
+  }
+
   return (
     <div className="grid lg:grid-cols-2 gap-4 items-start">
       <div className="card space-y-3">
@@ -359,8 +538,19 @@ function Simulateur({ cursus }) {
           <span className="text-slate-400">(vide = journée entière)</span>
         </div>
         <h3 className="text-xs font-bold uppercase tracking-wide text-slate-500 pt-2">2 · Cursus à évaluer simultanément ({sel.length} sélectionné(s))</h3>
-        <input value={filtre} onChange={e => setFiltre(e.target.value)} placeholder="Filtrer (formation, pôle, promo...)" className="!py-1.5 !text-xs" />
-        <div className="border border-slate-200 rounded-xl max-h-72 overflow-y-auto nav-scroll divide-y divide-slate-50">
+        <SegmentsPoles segment={segment} setSegment={setSegment} compteur={(p) => cursus.filter(c => c.pole_code === p).length} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <Filtre value={fPromo} onChange={setFPromo}>
+            <option value="">Toutes promotions</option>
+            {promos.map(p => <option key={p}>{p}</option>)}
+          </Filtre>
+          <Filtre value={fNiveau} onChange={setFNiveau}>
+            <option value="">Tous niveaux</option>
+            {NIVEAUX_L.map(n => <option key={n}>{n}</option>)}
+          </Filtre>
+          <input value={filtre} onChange={e => setFiltre(e.target.value)} placeholder="🔎 Formation..." className="flex-1 min-w-28 !py-1.5 !text-xs" />
+        </div>
+        <div className="border border-slate-200 rounded-xl max-h-64 overflow-y-auto nav-scroll divide-y divide-slate-50">
           {visibles.map(c => {
             const k = cle(c);
             return (
@@ -373,7 +563,7 @@ function Simulateur({ cursus }) {
               </label>
             );
           })}
-          {visibles.length === 0 && <p className="px-3 py-4 text-xs text-slate-400">Aucun cursus (importez d'abord les effectifs)</p>}
+          {visibles.length === 0 && <p className="px-3 py-4 text-xs text-slate-400">Aucun cursus pour ces critères</p>}
         </div>
         <button onClick={lancer} disabled={sel.length === 0 || loading} className="btn-primary w-full disabled:opacity-40">
           {loading ? 'Calcul...' : '🧮 Simuler'}
@@ -389,12 +579,17 @@ function Simulateur({ cursus }) {
         ) : (
           <>
             <div className={`card border-2 ${resultat.faisable ? '!border-green-300 bg-green-50/50' : '!border-red-300 bg-red-50/50'}`}>
-              <p className="font-bold text-lg">{resultat.faisable ? '✔ Programmation FAISABLE' : '❌ Programmation IMPOSSIBLE en l\'état'}</p>
-              <p className="text-xs text-slate-600 mt-1">
-                {resultat.total_demande.toLocaleString('fr-FR')} étudiants concernés
-                {resultat.satures.length > 0 && <> · ENO saturés : <strong>{resultat.satures.map(s => `${s.eno} (+${s.manque})`).join(', ')}</strong></>}
-                {resultat.capacites_inconnues.length > 0 && <> · ⚠ capacité non renseignée : {resultat.capacites_inconnues.join(', ')}</>}
-              </p>
+              <div className="flex items-start justify-between gap-2">
+                <div>
+                  <p className="font-bold text-lg">{resultat.faisable ? '✔ Programmation FAISABLE' : '❌ Programmation IMPOSSIBLE en l\'état'}</p>
+                  <p className="text-xs text-slate-600 mt-1">
+                    {resultat.total_demande.toLocaleString('fr-FR')} étudiants concernés
+                    {resultat.satures.length > 0 && <> · ENO saturés : <strong>{resultat.satures.map(s => `${s.eno} (+${s.manque})`).join(', ')}</strong></>}
+                    {resultat.capacites_inconnues.length > 0 && <> · ⚠ capacité non renseignée : {resultat.capacites_inconnues.join(', ')}</>}
+                  </p>
+                </div>
+                <BoutonExport onClick={exporterResultat} />
+              </div>
             </div>
             <div className="card !p-0 overflow-x-auto nav-scroll">
               <table className="w-full text-xs">
