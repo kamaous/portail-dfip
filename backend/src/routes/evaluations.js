@@ -60,16 +60,13 @@ function dansUnePlage(plages, d1, d2) {
   return plages.some(p => d1 >= p.date_debut && (d2 || d1) <= p.date_fin);
 }
 
-// Contrôle des dates fournies par un responsable de formation (bloquant),
-// et par les autres rôles si des plages existent.
+// RÈGLE : une activité EVALUATIONS (plage) doit exister au Planning annuel pour le pôle,
+// et les dates doivent s'y inscrire — TOUS les rôles y sont soumis, direction comprise.
 function controlePlage(db, user, { annee_id, pole_id, date_demarrage, date_fin_prevue }) {
   if (!date_demarrage) return null;
   const plages = plagesEvaluations(db, annee_id, pole_id);
-  const estRF = hasRole(user, 'RESPONSABLE_FORMATION');
   if (plages.length === 0) {
-    return estRF
-      ? "Aucune plage d'évaluations n'est définie dans le Planning annuel pour votre pôle. Impossible de fixer des dates."
-      : null; // les rôles de direction peuvent amorcer sans plage
+    return "Aucune plage d'évaluations n'est définie au Planning annuel pour ce pôle. Créez d'abord l'activité (type Évaluations) dans le Planning annuel.";
   }
   if (!dansUnePlage(plages, date_demarrage, date_fin_prevue)) {
     const liste = plages.map(p => `${p.date_debut} → ${p.date_fin}`).join(' ; ');

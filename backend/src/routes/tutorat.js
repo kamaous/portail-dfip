@@ -34,10 +34,13 @@ function plagesTutorat(db, annee_id, poleId) {
     ORDER BY date_debut
   `).all(annee_id, POLE_SEGMENT_T[pole.code] || '—');
 }
-// Si des plages TUTORAT existent pour le pôle, les dates de la fiche doivent s'y inscrire.
+// RÈGLE : une activité TUTORAT (plage) doit exister au Planning annuel pour le pôle,
+// et les dates de la fiche doivent s'y inscrire — TOUS les rôles y sont soumis.
 function controlePlageTutorat(db, { annee_id, pole_id, date_debut, date_fin }) {
   const plages = plagesTutorat(db, annee_id, pole_id);
-  if (plages.length === 0) return null; // pas de plage définie → pas de contrainte
+  if (plages.length === 0) {
+    return "Aucune plage de tutorat n'est définie au Planning annuel pour ce pôle. Créez d'abord l'activité (type Tutorat) dans le Planning annuel.";
+  }
   const ok = plages.some(p => date_debut >= p.date_debut && (date_fin || date_debut) <= p.date_fin);
   if (ok) return null;
   const liste = plages.map(p => `${p.date_debut} → ${p.date_fin}`).join(' ; ');
@@ -112,6 +115,15 @@ router.get('/stats', auth, (req, res) => {
     total: db.prepare(`SELECT COUNT(*) as cnt FROM tutorat ${cond}`).get(...params).cnt,
     by_etat: db.prepare(`SELECT etat_tutorat as etat, COUNT(*) as cnt FROM tutorat ${cond} GROUP BY etat_tutorat`).all(...params),
   });
+});
+
+// GET /api/tutorat/plages?annee_id=&pole_id= — plages TUTORAT autorisées (pour l'UI)
+router.get('/plages', auth, (req, res) => {
+  const db = getDb();
+  const annee_id = req.query.annee_id
+    || db.prepare('SELECT id FROM annees_academiques WHERE active = 1 LIMIT 1').get()?.id;
+  if (!req.query.pole_id || !annee_id) return res.json([]);
+  res.json(plagesTutorat(db, annee_id, req.query.pole_id));
 });
 
 const FIELDS = ['plateforme_cours', 'cours', 'enrolement_tuteurs', 'enrolement_etudiants',
@@ -224,6 +236,16 @@ router.put('/:id', auth, (req, res) => {
   // Fiche issue du planning annuel : ses dates sont pilotées par l'activité liée
   if (prev.activite_id && ['date_debut', 'date_fin'].some(f => f in req.body)) {
     return res.status(409).json({ error: 'Cette fiche est liée au Planning annuel : modifiez les dates de l\'activité dans le planning.' });
+  }
+
+  // Les dates modifiées doivent rester dans les plages TUTORAT du Planning annuel
+  if (['date_debut', 'date_fin'].some(f => f in req.body)) {
+    const errPlage = controlePlageTutorat(db, {
+      annee_id: prev.annee_id, pole_id: prev.pole_id,
+      date_debut: req.body.date_debut ?? prev.date_debut,
+      date_fin: req.body.date_fin ?? prev.date_fin,
+    });
+    if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
   }
 
   // Les indicateurs ne se remplissent qu'après validation de la fiche

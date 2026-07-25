@@ -72,6 +72,8 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
 
   const horsPlage = plages?.length > 0 && form.date_demarrage && form.date_fin_prevue &&
     !plages.some(p => form.date_demarrage >= p.date_debut && form.date_fin_prevue <= p.date_fin);
+  // RÈGLE : sans plage au Planning annuel pour le pôle, la création est impossible (tous rôles)
+  const sansPlage = !!form.pole_id && plages !== null && plages.length === 0;
 
   // Pré-contrôle de CAPACITÉ des ENO en direct (effectifs cumulés vs capacités)
   const [capaciteLive, setCapaciteLive] = useState(null);
@@ -148,8 +150,8 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
               </div>
             ) : (
               <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-700">
-                ⚠️ Aucune plage d'évaluations définie dans le Planning annuel pour ce pôle
-                {estRF ? ' — la création sera bloquée. Contactez la DFIP.' : '.'}
+                ⛔ <strong>Aucune plage d'évaluations n'est définie au Planning annuel pour ce pôle.</strong>{' '}
+                La création est bloquée pour tous les rôles : créez d'abord l'activité (type Évaluations) dans le Planning annuel.
               </div>
             )
           )}
@@ -184,7 +186,10 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
-            <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? '...' : 'Enregistrer'}</button>
+            <button type="submit" disabled={loading || sansPlage} className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={sansPlage ? 'Aucune plage au Planning annuel pour ce pôle' : undefined}>
+              {loading ? '...' : 'Enregistrer'}
+            </button>
           </div>
         </form>
       </div>
