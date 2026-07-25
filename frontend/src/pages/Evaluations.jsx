@@ -293,7 +293,8 @@ export default function Evaluations() {
   const [terminerModal, setTerminerModal] = useState(null);
   function marquerTerminee(s) { setTerminerModal(s); }
 
-  const canDelete = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Suppression : Chef division DFE, Directeur DFIP, Admin (délibérée = Direction seulement)
+  const canDelete = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Suivi : Chef de division DFE
   const canSuivi = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Création + dates : Responsable pédagogique du pôle (les RF consultent et signalent)
@@ -763,29 +764,12 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
         </div>
       )}
 
-      {/* Évaluation ANNULÉE : suppression par le Chef div DFE, sur validation du Directeur DFIP */}
-      {s.etat === 'ANNULE' && (canSuivi || canDelete) && !s.activite_id && (
-        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 mt-3 flex-wrap">
-          {s.suppr_demandee ? (
-            canDelete ? (
-              <>
-                <span className="badge bg-amber-100 text-amber-700 text-[11px]">🗑 Suppression demandée par le Chef div. DFE</span>
-                <button onClick={() => del(s.id)} className="btn-danger !py-1.5 text-xs">Valider la suppression</button>
-                <button onClick={() => refuserSuppression(s.id)} className="btn-secondary !py-1.5 text-xs">Refuser</button>
-              </>
-            ) : (
-              <span className="badge bg-amber-100 text-amber-700 text-[11px]">🗑 Suppression demandée — en attente de validation du Directeur DFIP</span>
-            )
-          ) : (
-            <>
-              {userRole === 'CHEF_DIV_EVALUATION' && (
-                <button onClick={() => demanderSuppression(s.id)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200">
-                  🗑 Demander la suppression (validation DFIP)
-                </button>
-              )}
-              {canDelete && <button onClick={() => del(s.id)} className="p-1.5 text-red-400 hover:bg-red-50 rounded" title="Supprimer"><Trash2 size={15} /></button>}
-            </>
-          )}
+      {/* Évaluation ANNULÉE : suppression directe (Chef div DFE, Directeur, Admin) */}
+      {s.etat === 'ANNULE' && canDelete && !s.activite_id && (
+        <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
+          <button onClick={() => del(s.id)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200 flex items-center gap-1.5">
+            <Trash2 size={13} /> Supprimer l'évaluation annulée
+          </button>
         </div>
       )}
     </div>

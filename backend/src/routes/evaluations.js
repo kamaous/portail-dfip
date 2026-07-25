@@ -394,9 +394,8 @@ router.post('/deliberations', auth, requireRole(...DELIB_ROLES), (req, res) => {
 });
 
 // DELETE
-/* Suppression :
-   - Directeur / Admin : suppression directe
-   - Chef division DFE : uniquement une évaluation ANNULÉE → demande soumise à la validation du Directeur DFIP */
+/* Suppression : Directeur DFIP, Admin et Chef division DFE (suppression directe).
+   Une évaluation DÉLIBÉRÉE reste supprimable uniquement par la Direction. */
 router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_DIV_EVALUATION'), (req, res) => {
   const db = getDb();
   const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(req.params.id);
@@ -404,25 +403,9 @@ router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_DIV_
   if (s.activite_id) {
     return res.status(409).json({ error: 'Évaluation liée au Planning annuel : supprimez l\'activité dans le planning.' });
   }
-
   const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
-  if (!estDirection) {
-    // Chef division DFE : demande de suppression (évaluation annulée uniquement)
-    if (s.etat !== 'ANNULE') {
-      return res.status(409).json({ error: 'Seule une évaluation ANNULÉE peut faire l\'objet d\'une demande de suppression.' });
-    }
-    if (s.suppr_demandee) return res.status(409).json({ error: 'Suppression déjà demandée — en attente du Directeur DFIP.' });
-    db.prepare("UPDATE sessions_examen SET suppr_demandee = 1, updated_at = datetime('now') WHERE id = ?").run(s.id);
-    const dirs = db.prepare("SELECT * FROM users WHERE role = 'DIRECTEUR' AND actif = 1").all();
-    const ins = db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)');
-    for (const d of dirs) {
-      const msg = `${req.user.prenom} ${req.user.nom} demande la suppression d'une évaluation ANNULÉE (${SESSION_LABEL[s.session_num]} ${s.niveau || ''} ${s.semestre_code || ''}). Validez ou refusez depuis le module Évaluations.`;
-      ins.run(d.id, '🗑 Demande de suppression d\'évaluation', msg, 'EVALUATION', '/evaluations');
-      sendEmail({ to: d.email, subject: '[Portail DFIP] Demande de suppression d\'évaluation', html: emailWrapper(d, 'Suppression à valider', `<p>${msg}</p>`) });
-    }
-    db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
-      .run(req.user.id, 'DEMANDE_SUPPRESSION', 'EVALUATIONS', `id=${s.id}`);
-    return res.status(202).json({ message: 'Demande de suppression transmise au Directeur DFIP pour validation.' });
+  if (!estDirection && s.delib_etat === 'TERMINEE') {
+    return res.status(403).json({ error: 'Évaluation délibérée (clôturée) : suppression réservée au Directeur DFIP.' });
   }
 
   db.prepare('DELETE FROM sessions_examen WHERE id = ?').run(req.params.id);

@@ -648,10 +648,11 @@ export default function Tutorat() {
   }
   const estCreateurFiche = (t) => user?.role === 'RESPONSABLE_PEDAGOGIQUE' && user?.id === t.created_by;
 
-  const canDelete = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
-  // Section PLATEFORMES ET TUTORATS : Chef division Technopédagogie (aligné sur le backend)
-  const canWrite = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
-  const canValider = canWrite;
+  // Suppression / modification : Chefs de division (Technopédagogie + DFE), Directeur DFIP, Admin
+  const canDelete = ['CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  const canWrite = ['CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // La VALIDATION des fiches soumises reste au Chef de division Technopédagogie
+  const canValider = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Création des fiches : Responsable pédagogique du pôle (les RF consultent et signalent)
   const canCreate = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   const peutSignaler = user?.role === 'RESPONSABLE_FORMATION';

@@ -12,7 +12,9 @@ const router = express.Router();
 const CREATE_ROLES = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
 // Section « PLATEFORMES ET TUTORATS » (indicateurs + état) : Chef div. Technopédagogie
 const INDIC_ROLES = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
-const WRITE_ROLES = INDIC_ROLES; // compat (signaler-retard, etc.)
+// Modification des fiches : le Chef division DFE (évaluations) a aussi la main
+const EDIT_ROLES = [...INDIC_ROLES, 'CHEF_DIV_EVALUATION'];
+const WRITE_ROLES = EDIT_ROLES; // compat (signaler-retard, etc.)
 
 // Tout est OK quand plateforme + cours disponibles et les 3 enrôlements effectifs
 function toutEstOK(t) {
@@ -204,10 +206,10 @@ router.put('/:id', auth, (req, res) => {
   const prev = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(req.params.id);
   if (!prev) return res.status(404).json({ error: 'Fiche introuvable' });
 
-  const estChef = INDIC_ROLES.includes(req.user.role);
+  const estChef = EDIT_ROLES.includes(req.user.role);
   const estCreateurRF = hasRole(req.user, 'RESPONSABLE_FORMATION') && prev.created_by === req.user.id;
   if (!estChef && !estCreateurRF) {
-    return res.status(403).json({ error: 'Section PLATEFORMES ET TUTORATS réservée au Chef de division Technopédagogie.' });
+    return res.status(403).json({ error: 'Modification réservée aux Chefs de division, à la Direction et au créateur de la fiche.' });
   }
 
   const INDICATEURS = ['plateforme_cours', 'cours', 'enrolement_tuteurs', 'enrolement_etudiants',
@@ -312,13 +314,17 @@ router.post('/:id/signaler-retard', auth, requireRole(...WRITE_ROLES), (req, res
 });
 
 // DELETE /api/tutorat/:id
-router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+// Suppression : Directeur DFIP, Admin, Chef div Technopédagogie, Chef div DFE
+router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION'), (req, res) => {
   const db = getDb();
-  const t = db.prepare('SELECT activite_id FROM tutorat WHERE id = ?').get(req.params.id);
-  if (t?.activite_id) {
+  const t = db.prepare('SELECT id, activite_id FROM tutorat WHERE id = ?').get(req.params.id);
+  if (!t) return res.status(404).json({ error: 'Fiche introuvable' });
+  if (t.activite_id) {
     return res.status(409).json({ error: 'Fiche liée au Planning annuel : supprimez l\'activité dans le planning.' });
   }
   db.prepare('DELETE FROM tutorat WHERE id = ?').run(req.params.id);
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, 'DELETE_TUTORAT', 'TUTORAT', `id=${req.params.id}`);
   res.json({ message: 'Fiche supprimée' });
 });
 
