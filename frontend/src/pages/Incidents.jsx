@@ -2,7 +2,7 @@ import { useEffect, useState, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, AlertTriangle, CheckCircle, MessageSquare, ChevronDown, LayoutGrid, GanttChartSquare, List } from 'lucide-react';
+import { Plus, AlertTriangle, CheckCircle, MessageSquare, ChevronDown, LayoutGrid, GanttChartSquare, List, Trash2 } from 'lucide-react';
 import { formatDistanceToNow, format } from 'date-fns';
 import { fr } from 'date-fns/locale';
 import { useAuth } from '../context/AuthContext';
@@ -42,9 +42,21 @@ const CONSEQ_TUTORAT = { '': '— Aucune —', RETARD: 'Retard' };
 const NIVEAUX_INC = { L1: 'Licence 1', L2: 'Licence 2', L3: 'Licence 3', M1: 'Master 1', M2: 'Master 2' };
 const SEMESTRES_INC = { L1: ['S1', 'S2'], L2: ['S3', 'S4'], L3: ['S5', 'S6'], M1: ['S1', 'S2'], M2: ['S3'] };
 
-function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
+function ModalIncident({ poles, promotions, users, incident, onClose, onCreated }) {
   const { user } = useAuth();
-  const [form, setForm] = useState({
+  const edition = !!incident; // modification d'un incident existant (correction d'erreurs)
+  const [form, setForm] = useState(edition ? {
+    titre: incident.titre || '', description: incident.description || '',
+    type_incident: incident.type_incident || 'AUTRE', gravite: incident.gravite || 'FAIBLE',
+    pole_ids: incident.pole_id ? [incident.pole_id] : [],
+    assigne_a: incident.assigne_a || '', date_incident: incident.date_incident || '',
+    date_debut: incident.date_debut || '', date_fin: incident.date_fin || '',
+    conseq_eval: incident.conseq_eval || '', conseq_tutorat: incident.conseq_tutorat || '',
+    promotion_id: incident.promotion_id || '', formation_id: incident.formation_id || '',
+    niveau: incident.niveau || '', semestre_code: incident.semestre_code || '', session_num: incident.session_num || '',
+    consequence_examens: incident.consequence_examens || '', consequence_tutorat: incident.consequence_tutorat || '',
+    consequence_calendrier: incident.consequence_calendrier || ''
+  } : {
     titre: '', description: '', type_incident: 'AUTRE', gravite: 'FAIBLE',
     pole_ids: [], assigne_a: '', date_incident: '', date_debut: '', date_fin: '',
     conseq_eval: '', conseq_tutorat: '',
@@ -67,8 +79,13 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
     e.preventDefault();
     setLoading(true);
     try {
-      await api.post('/incidents', { ...form, pole_id: form.pole_ids });
-      toast.success(form.pole_ids.length > 1 ? `Incident signalé pour ${form.pole_ids.length} pôles` : 'Incident signalé');
+      if (edition) {
+        await api.put(`/incidents/${incident.id}`, { ...form, pole_id: form.pole_ids[0] || null });
+        toast.success('Incident modifié');
+      } else {
+        await api.post('/incidents', { ...form, pole_id: form.pole_ids });
+        toast.success(form.pole_ids.length > 1 ? `Incident signalé pour ${form.pole_ids.length} pôles` : 'Incident signalé');
+      }
       onCreated();
       onClose();
     } catch (err) {
@@ -82,7 +99,7 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
       <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white">
-          <h2 className="font-semibold text-slate-800">Signaler un incident</h2>
+          <h2 className="font-semibold text-slate-800">{edition ? `✏️ Modifier l'incident #${incident.id}` : 'Signaler un incident'}</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
@@ -132,7 +149,8 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
                 ))}
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                {form.pole_ids.length === 0 ? 'Incident général : visible sur tous les pôles.'
+                {edition ? 'En modification, un seul pôle est retenu (le premier coché) — ou aucun pour un incident général.'
+                  : form.pole_ids.length === 0 ? 'Incident général : visible sur tous les pôles.'
                   : `Un incident sera créé pour chacun des ${form.pole_ids.length} pôle(s) sélectionné(s).`}
               </p>
             </div>
@@ -207,7 +225,7 @@ function ModalIncident({ poles, promotions, users, onClose, onCreated }) {
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
             <button type="submit" disabled={loading} className="btn-danger flex-1">
-              {loading ? 'Envoi...' : '🚨 Signaler'}
+              {loading ? 'Envoi...' : edition ? '💾 Enregistrer les modifications' : '🚨 Signaler'}
             </button>
           </div>
         </form>
@@ -361,12 +379,25 @@ function ModalResolution({ incident, onClose, onDone }) {
   );
 }
 
-function IncidentCard({ incident, onRefresh }) {
+function IncidentCard({ incident, onRefresh, onEdit }) {
   const { user } = useAuth();
   const [expanded, setExpanded] = useState(false);
   const [detail, setDetail] = useState(null);
   const [comment, setComment] = useState('');
   const [resoudre, setResoudre] = useState(false);
+
+  // Édition/suppression : le déclarant tant que l'incident n'est pas résolu, la Direction toujours
+  const peutEditer = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role)
+    || (incident.signale_par === user?.id && incident.statut !== 'RESOLU');
+
+  async function supprimer() {
+    if (!confirm(`Supprimer l'incident « ${incident.titre} » ?`)) return;
+    try {
+      await api.delete(`/incidents/${incident.id}`);
+      toast.success('Incident supprimé');
+      onRefresh();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
 
   async function loadDetail() {
     if (detail) { setExpanded(v => !v); return; }
@@ -422,6 +453,16 @@ function IncidentCard({ incident, onRefresh }) {
           {canDecider && incident.statut !== 'RESOLU' && (
             <button onClick={() => setResoudre(true)} className="p-1.5 text-green-600 hover:bg-green-50 rounded-lg flex items-center gap-1 text-xs font-medium" title="Résoudre (décision du DFIP : prolonger / reporter / annuler / intact)">
               <CheckCircle size={16} /> Résoudre
+            </button>
+          )}
+          {peutEditer && onEdit && (
+            <button onClick={() => onEdit(incident)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg text-xs font-medium" title="Modifier l'incident (correction d'erreurs)">
+              ✏️
+            </button>
+          )}
+          {peutEditer && (
+            <button onClick={supprimer} className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg" title="Supprimer l'incident">
+              <Trash2 size={15} />
             </button>
           )}
           <button onClick={loadDetail} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">
@@ -487,6 +528,7 @@ export default function Incidents() {
   const [filtreStatut, setFiltreStatut] = useState('');
   const [filtreGravite, setFiltreGravite] = useState(searchParams.get('gravite') || '');
   const [modal, setModal] = useState(false);
+  const [modalEdit, setModalEdit] = useState(null); // incident en cours de modification
   const [vue, setVue] = useState('LISTE');        // LISTE (par défaut) | PLANNING
   const [segment, setSegment] = useState(null);   // null = tous, sinon code pôle ou GENERAL
   const [zoom, setZoom] = useState({ mode: 'ANNEE' });
@@ -777,12 +819,13 @@ export default function Incidents() {
       )}
 
       {modal && <ModalIncident poles={poles} promotions={promotions} users={users} onClose={() => setModal(false)} onCreated={load} />}
+      {modalEdit && <ModalIncident poles={poles} promotions={promotions} users={users} incident={modalEdit} onClose={() => setModalEdit(null)} onCreated={load} />}
 
       {/* Popup détails d'un incident (depuis la vue planning) */}
       {incidentDetail && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setDetailId(null)}>
           <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto nav-scroll" onClick={e => e.stopPropagation()}>
-            <IncidentCard incident={incidentDetail} onRefresh={load} />
+            <IncidentCard incident={incidentDetail} onRefresh={load} onEdit={(i) => { setDetailId(null); setModalEdit(i); }} />
             <button onClick={() => setDetailId(null)} className="w-full mt-2 bg-white/90 rounded-xl py-2 text-sm text-slate-500 hover:text-slate-700">
               Fermer
             </button>

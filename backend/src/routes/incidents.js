@@ -397,9 +397,51 @@ router.post('/:id/commentaires', auth, (req, res) => {
 });
 
 // DELETE /api/incidents/:id
-router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+/* PUT /api/incidents/:id — MODIFICATION d'un incident (correction d'erreurs de saisie).
+   Autorisé au DÉCLARANT tant que l'incident n'est pas résolu, et à la Direction/Admin. */
+router.put('/:id', auth, (req, res) => {
   const db = getDb();
+  const inc = db.prepare('SELECT * FROM incidents WHERE id = ?').get(req.params.id);
+  if (!inc) return res.status(404).json({ error: 'Incident non trouvé' });
+  const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
+  const estDeclarant = inc.signale_par === req.user.id;
+  if (!estDirection && !(estDeclarant && inc.statut !== 'RESOLU')) {
+    return res.status(403).json({ error: inc.statut === 'RESOLU'
+      ? 'Incident résolu : seul le Directeur DFIP peut encore le modifier.'
+      : 'Seul le déclarant (ou la Direction) peut modifier cet incident.' });
+  }
+  if (req.body.conseq_eval && !CONSEQ_EVAL.includes(req.body.conseq_eval)) {
+    return res.status(400).json({ error: 'Conséquence évaluations invalide' });
+  }
+  const CHAMPS = ['titre', 'description', 'type_incident', 'gravite', 'pole_id', 'assigne_a',
+    'date_incident', 'date_debut', 'date_fin', 'conseq_eval', 'conseq_tutorat',
+    'consequence_examens', 'consequence_tutorat', 'consequence_calendrier',
+    'promotion_id', 'formation_id', 'niveau', 'semestre_code', 'session_num'];
+  const sets = [], vals = [];
+  for (const c of CHAMPS) if (c in req.body) { sets.push(`${c}=?`); vals.push(req.body[c] === '' ? null : req.body[c]); }
+  if (!sets.length) return res.status(400).json({ error: 'Aucun champ à modifier' });
+  vals.push(inc.id);
+  db.prepare(`UPDATE incidents SET ${sets.join(', ')}, updated_at=datetime('now') WHERE id=?`).run(...vals);
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, 'UPDATE_INCIDENT', 'INCIDENTS', `#${inc.id} ${req.body.titre || inc.titre}`);
+  res.json(db.prepare('SELECT * FROM incidents WHERE id = ?').get(inc.id));
+});
+
+/* Suppression : déclarant tant que non résolu, Direction/Admin toujours */
+router.delete('/:id', auth, (req, res) => {
+  const db = getDb();
+  const inc = db.prepare('SELECT * FROM incidents WHERE id = ?').get(req.params.id);
+  if (!inc) return res.status(404).json({ error: 'Incident non trouvé' });
+  const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
+  const estDeclarant = inc.signale_par === req.user.id;
+  if (!estDirection && !(estDeclarant && inc.statut !== 'RESOLU')) {
+    return res.status(403).json({ error: inc.statut === 'RESOLU'
+      ? 'Incident résolu : seul le Directeur DFIP peut le supprimer.'
+      : 'Seul le déclarant (ou la Direction) peut supprimer cet incident.' });
+  }
   db.prepare('DELETE FROM incidents WHERE id = ?').run(req.params.id);
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, 'DELETE_INCIDENT', 'INCIDENTS', `#${inc.id} ${inc.titre}`);
   res.json({ message: 'Incident supprimé' });
 });
 
