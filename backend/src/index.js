@@ -60,6 +60,7 @@ app.use('/api/planning', require('./routes/planning'));
 app.use('/api/public', require('./routes/public')); // visiteur sans compte : planning en lecture seule
 app.use('/api/signalements', require('./routes/signalements'));
 app.use('/api/statistiques', require('./routes/statistiques').router);
+app.use('/api/referentiel', require('./routes/referentiel').router);
 
 // Nettoyage des sessions expirées (toutes les heures)
 setInterval(() => {

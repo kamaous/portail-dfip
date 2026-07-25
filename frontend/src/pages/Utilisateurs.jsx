@@ -4,10 +4,11 @@ import toast from 'react-hot-toast';
 import { Plus, RefreshCw, UserX, UserCheck, Edit } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
-const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'CHARGE_SCOLARITE', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
+const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'DIRECTEUR_DEVES', 'COORDONNATEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'CHARGE_SCOLARITE', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
 const ROLE_LABELS = {
   RECTEUR: 'Recteur', VICE_RECTEUR: 'Vice-Recteur Pédagogie', DIRECTEUR: 'Directeur DFIP',
   DIRECTEUR_DES: 'Directeur des Études et de la Scolarité (DES)',
+  DIRECTEUR_DEVES: 'Directeur DEVES',
   COORDONNATEUR: 'Coordonnateur du Projet',
   CHARGE_SCOLARITE: 'Chargé de la Scolarité (ENO)',
   CHEF_SERVICE: 'Chef de Service', CHEF_DIV_TECHNOPEDAGOGIE: 'Chef div. Technopédagogie',
@@ -21,6 +22,7 @@ const ROLE_COLORS = {
   VICE_RECTEUR: 'bg-slate-200 text-slate-800',
   DIRECTEUR: 'bg-purple-100 text-purple-800',
   DIRECTEUR_DES: 'bg-fuchsia-100 text-fuchsia-800',
+  DIRECTEUR_DEVES: 'bg-rose-100 text-rose-800',
   COORDONNATEUR: 'bg-yellow-100 text-yellow-800',
   CHARGE_SCOLARITE: 'bg-emerald-100 text-emerald-800',
   CHEF_SERVICE: 'bg-blue-100 text-blue-800',

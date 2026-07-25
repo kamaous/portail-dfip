@@ -23,10 +23,16 @@ const VISITEUR_ALLOW = [
   '/api/planning',                   // planning + périmètre + plages (GET)
   '/api/dashboard/annees',           // sélecteur d'année du planning
   '/api/calendrier-academique/',     // fériés & vacances (bandes du planning)
+  '/api/poles',                      // référentiel en lecture (page Référentiel du Vice-Recteur)
 ];
 function accesVisiteurAutorise(req) {
   const url = req.originalUrl.split('?')[0];
   if (url.startsWith('/api/auth/')) return true;
+  // Vice-Recteur : validation des demandes de suppression du référentiel
+  // (la route elle-même exige le rôle VICE_RECTEUR pour décider)
+  if (url.startsWith('/api/referentiel')) {
+    return req.method === 'GET' || (req.method === 'POST' && /\/decider$/.test(url));
+  }
   if (req.method !== 'GET') return false;
   return VISITEUR_ALLOW.some(p => url.startsWith(p));
 }
@@ -100,6 +106,16 @@ function auth(req, res, next) {
         || url.startsWith('/api/statistiques')
         || (req.method === 'GET' && (url.startsWith('/api/planning') || url.startsWith('/api/dashboard/annees') || url.startsWith('/api/calendrier-academique/')));
       if (!ok) return res.status(403).json({ error: 'Accès Chargé de scolarité : module Statistiques (votre ENO) uniquement.' });
+    }
+
+    // Directeur DEVES : module Statistiques (ajout/gestion des ENO) + planning en lecture
+    if (user.role === 'DIRECTEUR_DEVES') {
+      const url = req.originalUrl.split('?')[0];
+      const ok = url.startsWith('/api/auth/')
+        || url.startsWith('/api/statistiques')
+        || url.startsWith('/api/referentiel')
+        || (req.method === 'GET' && (url.startsWith('/api/planning') || url.startsWith('/api/poles') || url.startsWith('/api/dashboard/annees') || url.startsWith('/api/calendrier-academique/')));
+      if (!ok) return res.status(403).json({ error: 'Accès Directeur DEVES : module Statistiques (ENO et capacités) uniquement.' });
     }
 
     next();

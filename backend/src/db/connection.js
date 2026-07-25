@@ -603,6 +603,24 @@ function runMigrations() {
   // Chargé de scolarité : rattaché à UN ENO
   addColumns('users', { eno_id: 'INTEGER' });
 
+  // Référentiel : toute SUPPRESSION (pôle, formation, promotion, ENO) doit être
+  // validée par le Vice-Recteur — les demandes sont tracées ici
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS referentiel_suppressions (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      type TEXT NOT NULL,              -- POLE | FORMATION | PROMOTION | ENO
+      ref_id INTEGER NOT NULL,
+      libelle TEXT NOT NULL,           -- libellé lisible de l'élément visé
+      demande_par INTEGER NOT NULL,
+      statut TEXT NOT NULL DEFAULT 'EN_ATTENTE',  -- EN_ATTENTE | VALIDEE | REJETEE
+      decide_par INTEGER,
+      decide_le TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (demande_par) REFERENCES users(id),
+      FOREIGN KEY (decide_par) REFERENCES users(id)
+    );
+  `);
+
   // Planning annuel : lignes (niveaux) paramétrables par segment — gérées par le Directeur DFIP
   db.exec(`
     CREATE TABLE IF NOT EXISTS planning_lignes (

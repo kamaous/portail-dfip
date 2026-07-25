@@ -1,15 +1,19 @@
 const express = require('express');
 const { getDb } = require('../db/connection');
 const { auth, requireRole } = require('../middleware/auth');
+const { demanderSuppression } = require('./referentiel');
 
 const router = express.Router();
 
 /* ===== Module STATISTIQUES =====
-   - ENO et capacités : gérés par l'Admin/Directeur, affinés par le Chargé de scolarité de chaque ENO
-   - Effectifs par (promotion × niveau × formation × ENO) : renseignés par le Directeur DES
+   - ENO et capacités : AJOUT par le Directeur DEVES (+ Direction/Admin),
+     affinés par le Chargé de scolarité de chaque ENO
+   - Effectifs par (promotion × niveau × formation × ENO) : saisie du Directeur DES UNIQUEMENT
+   - Suppression d'un ENO : validée par le Vice-Recteur
    - Simulateur d'évaluations : effectifs cumulés par ENO vs capacités */
 
 const GESTION = ['DIRECTEUR', 'ADMIN_PORTAIL'];
+const GESTION_ENO = ['DIRECTEUR', 'ADMIN_PORTAIL', 'DIRECTEUR_DEVES'];
 
 // Capacité effective d'un ENO : somme des salles disponibles si des salles sont
 // déclarées, sinon la capacité globale saisie
@@ -30,7 +34,7 @@ router.get('/eno', auth, (req, res) => {
   })));
 });
 
-router.post('/eno', auth, requireRole(...GESTION), (req, res) => {
+router.post('/eno', auth, requireRole(...GESTION_ENO), (req, res) => {
   const { nom, capacite, note } = req.body;
   if (!nom?.trim()) return res.status(400).json({ error: 'Nom requis' });
   const db = getDb();
@@ -46,7 +50,7 @@ router.put('/eno/:id', auth, (req, res) => {
   const db = getDb();
   const eno = db.prepare('SELECT * FROM enos WHERE id = ?').get(req.params.id);
   if (!eno) return res.status(404).json({ error: 'ENO introuvable' });
-  const estGestion = GESTION.includes(req.user.role);
+  const estGestion = GESTION.includes(req.user.role) || req.user.role === 'DIRECTEUR_DEVES';
   const estCharge = req.user.role === 'CHARGE_SCOLARITE' && req.user.eno_id === eno.id;
   if (!estGestion && !estCharge) return res.status(403).json({ error: 'Réservé à l\'administration ou au Chargé de scolarité de cet ENO.' });
   const { nom, capacite, note, actif } = req.body;
@@ -61,12 +65,13 @@ router.put('/eno/:id', auth, (req, res) => {
   res.json(db.prepare('SELECT * FROM enos WHERE id = ?').get(eno.id));
 });
 
-router.delete('/eno/:id', auth, requireRole(...GESTION), (req, res) => {
+// Suppression d'un ENO : demande à valider par le Vice-Recteur
+router.delete('/eno/:id', auth, requireRole(...GESTION_ENO), (req, res) => {
   const db = getDb();
-  const n = db.prepare('SELECT COUNT(*) as c FROM effectifs WHERE eno_id = ?').get(req.params.id).c;
-  if (n > 0) return res.status(409).json({ error: `Impossible : ${n} effectif(s) rattachés à cet ENO` });
-  db.prepare('DELETE FROM enos WHERE id = ?').run(req.params.id);
-  res.json({ message: 'ENO supprimé' });
+  const eno = db.prepare('SELECT * FROM enos WHERE id = ?').get(req.params.id);
+  if (!eno) return res.status(404).json({ error: 'ENO introuvable' });
+  const r = demanderSuppression(db, { type: 'ENO', ref_id: eno.id, libelle: eno.nom, user: req.user });
+  res.status(202).json({ message: r.deja ? 'Demande déjà en attente chez le Vice-Recteur' : 'Demande transmise au Vice-Recteur pour validation', demande: true });
 });
 
 /* Salles d'un ENO (Admin/Directeur, ou Chargé de scolarité de l'ENO) */
@@ -138,8 +143,8 @@ router.get('/cursus', auth, (req, res) => {
   `).all());
 });
 
-// Saisie unitaire (Directeur DES via alias DIRECTEUR, Admin)
-router.put('/effectifs', auth, requireRole(...GESTION), (req, res) => {
+// Saisie unitaire : Directeur DES UNIQUEMENT (rôle réel)
+router.put('/effectifs', auth, requireRole('DIRECTEUR_DES'), (req, res) => {
   const { promotion_code, niveau, formation_id, eno_id, nombre } = req.body;
   if (!promotion_code || !niveau || !formation_id || !eno_id) return res.status(400).json({ error: 'Champs requis manquants' });
   const db = getDb();
@@ -152,8 +157,8 @@ router.put('/effectifs', auth, requireRole(...GESTION), (req, res) => {
   res.json({ message: 'Effectif enregistré' });
 });
 
-// Import en masse (fichier DES) : crée ENO / formations manquantes puis upsert
-router.post('/effectifs/bulk', auth, requireRole(...GESTION), (req, res) => {
+// Import en masse (fichier DES) : Directeur DES uniquement — crée ENO / formations manquantes puis upsert
+router.post('/effectifs/bulk', auth, requireRole('DIRECTEUR_DES'), (req, res) => {
   const { lignes, capacites } = req.body; // lignes: [{promotion_code, niveau, pole_code, formation_code, formation_nom?, eno_nom, nombre}]
   if (!Array.isArray(lignes)) return res.status(400).json({ error: 'lignes[] requis' });
   const db = getDb();

@@ -15,6 +15,7 @@ import PlanningPublic from './pages/PlanningPublic';
 import Rapport from './pages/Rapport';
 import Statistiques from './pages/Statistiques';
 import CalendrierExamens from './pages/CalendrierExamens';
+import Referentiel from './pages/Referentiel';
 
 // Rôles « visiteurs » : lecture seule du planning annuel uniquement
 export const ROLES_VISITEURS = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR_DES', 'SCOLARITE', 'MEMBRE_POLE', 'ENSEIGNANT', 'ETUDIANT'];
@@ -68,8 +69,14 @@ function AppRoutes() {
         <ProtectedRoute roles={ROLES_METIER}><CalendrierExamens /></ProtectedRoute>
       } />
       <Route path="/statistiques" element={
-        <ProtectedRoute roles={[...ROLES_METIER, 'CHARGE_SCOLARITE']}>
+        <ProtectedRoute roles={[...ROLES_METIER, 'CHARGE_SCOLARITE', 'DIRECTEUR_DEVES']}>
           <Layout><Statistiques /></Layout>
+        </ProtectedRoute>
+      } />
+      {/* Référentiel : gestion DES + validation des suppressions par le Vice-Recteur */}
+      <Route path="/referentiel" element={
+        <ProtectedRoute roles={[...ROLES_METIER, 'VICE_RECTEUR', 'DIRECTEUR_DEVES']}>
+          <Layout><Referentiel /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/resume" element={

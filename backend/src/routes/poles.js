@@ -1,8 +1,14 @@
 const express = require('express');
 const { getDb } = require('../db/connection');
 const { auth, requireRole } = require('../middleware/auth');
+const { demanderSuppression } = require('./referentiel');
 
 const router = express.Router();
+
+/* RÈGLES RÉFÉRENTIEL :
+   - AJOUT de pôles, formations, promotions : Directeur DES uniquement (rôle réel).
+   - ÉDITION : Directeur DES (via alias DIRECTEUR) + Direction/Admin.
+   - SUPPRESSION : demande obligatoirement VALIDÉE par le Vice-Recteur. */
 
 // GET /api/poles — avec formations (référentiel UN-CHK)
 router.get('/', auth, (req, res) => {
@@ -27,8 +33,8 @@ router.get('/promotions', auth, (req, res) => {
   res.json(getDb().prepare('SELECT * FROM promotions WHERE active = 1 ORDER BY code').all());
 });
 
-// POST /api/poles/promotions
-router.post('/promotions', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+// POST /api/poles/promotions — AJOUT : Directeur DES uniquement
+router.post('/promotions', auth, requireRole('DIRECTEUR_DES'), (req, res) => {
   const { code, annee_entree } = req.body;
   if (!code) return res.status(400).json({ error: 'Code requis (ex: P14)' });
   const db = getDb();
@@ -40,28 +46,66 @@ router.post('/promotions', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req
   }
 });
 
-// POST /api/poles/:id/formations
-router.post('/:id/formations', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_SERVICE'), (req, res) => {
+// PUT /api/poles/promotions/:id — édition (DES via alias, Direction, Admin)
+router.put('/promotions/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const p = db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Promotion introuvable' });
+  const { code, annee_entree } = req.body;
+  db.prepare('UPDATE promotions SET code = ?, annee_entree = ? WHERE id = ?')
+    .run(code ? code.toUpperCase() : p.code, annee_entree !== undefined ? (annee_entree || null) : p.annee_entree, p.id);
+  res.json(db.prepare('SELECT * FROM promotions WHERE id = ?').get(p.id));
+});
+
+// DELETE /api/poles/promotions/:id — demande à valider par le Vice-Recteur
+router.delete('/promotions/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const p = db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Promotion introuvable' });
+  const r = demanderSuppression(db, { type: 'PROMOTION', ref_id: p.id, libelle: p.code, user: req.user });
+  res.status(202).json({ message: r.deja ? 'Demande déjà en attente chez le Vice-Recteur' : 'Demande transmise au Vice-Recteur pour validation', demande: true });
+});
+
+// POST /api/poles/:id/formations — AJOUT : Directeur DES uniquement
+// Champs : code (sigle) + nom complet + cycle (LICENCE | MASTER)
+router.post('/:id/formations', auth, requireRole('DIRECTEUR_DES'), (req, res) => {
   const { nom, code, cycle } = req.body;
-  if (!nom) return res.status(400).json({ error: 'Nom requis' });
+  if (!code?.trim()) return res.status(400).json({ error: 'Abréviation (sigle) requise' });
+  if (!nom?.trim()) return res.status(400).json({ error: 'Nom complet requis' });
+  if (!['LICENCE', 'MASTER'].includes(cycle)) return res.status(400).json({ error: 'Cycle requis : LICENCE ou MASTER' });
   const db = getDb();
   try {
     const r = db.prepare('INSERT INTO formations (pole_id, nom, code, cycle) VALUES (?, ?, ?, ?)')
-      .run(req.params.id, nom, code || null, cycle || 'LICENCE');
+      .run(req.params.id, nom.trim(), code.trim().toUpperCase(), cycle);
     res.status(201).json(db.prepare('SELECT * FROM formations WHERE id = ?').get(r.lastInsertRowid));
   } catch {
     res.status(409).json({ error: 'Cette formation existe déjà pour ce pôle' });
   }
 });
 
-// DELETE /api/poles/formations/:fid
-router.delete('/formations/:fid', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  getDb().prepare('DELETE FROM formations WHERE id = ?').run(req.params.fid);
-  res.json({ message: 'Formation supprimée' });
+// PUT /api/poles/formations/:fid — édition (DES via alias, Direction, Admin)
+router.put('/formations/:fid', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const f = db.prepare('SELECT * FROM formations WHERE id = ?').get(req.params.fid);
+  if (!f) return res.status(404).json({ error: 'Formation introuvable' });
+  const { nom, code, cycle } = req.body;
+  db.prepare('UPDATE formations SET nom = ?, code = ?, cycle = ? WHERE id = ?')
+    .run(nom?.trim() || f.nom, code !== undefined ? (code.trim().toUpperCase() || null) : f.code,
+      ['LICENCE', 'MASTER'].includes(cycle) ? cycle : f.cycle, f.id);
+  res.json(db.prepare('SELECT * FROM formations WHERE id = ?').get(f.id));
 });
 
-// CRUD Pôles (ADMIN + DIRECTEUR)
-router.post('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+// DELETE /api/poles/formations/:fid — demande à valider par le Vice-Recteur
+router.delete('/formations/:fid', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const f = db.prepare('SELECT * FROM formations WHERE id = ?').get(req.params.fid);
+  if (!f) return res.status(404).json({ error: 'Formation introuvable' });
+  const r = demanderSuppression(db, { type: 'FORMATION', ref_id: f.id, libelle: `${f.code || ''} ${f.nom}`.trim(), user: req.user });
+  res.status(202).json({ message: r.deja ? 'Demande déjà en attente chez le Vice-Recteur' : 'Demande transmise au Vice-Recteur pour validation', demande: true });
+});
+
+// POST /api/poles — AJOUT de pôle : Directeur DES uniquement
+router.post('/', auth, requireRole('DIRECTEUR_DES'), (req, res) => {
   const { code, nom } = req.body;
   if (!code) return res.status(400).json({ error: 'Code requis' });
   const db = getDb();
@@ -80,10 +124,13 @@ router.put('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) =
   res.json({ message: 'Pôle mis à jour' });
 });
 
+// DELETE /api/poles/:id — demande à valider par le Vice-Recteur
 router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
   const db = getDb();
-  db.prepare('DELETE FROM poles WHERE id = ?').run(req.params.id);
-  res.json({ message: 'Pôle supprimé' });
+  const p = db.prepare('SELECT * FROM poles WHERE id = ?').get(req.params.id);
+  if (!p) return res.status(404).json({ error: 'Pôle introuvable' });
+  const r = demanderSuppression(db, { type: 'POLE', ref_id: p.id, libelle: `${p.code}${p.nom ? ` — ${p.nom}` : ''}`, user: req.user });
+  res.status(202).json({ message: r.deja ? 'Demande déjà en attente chez le Vice-Recteur' : 'Demande transmise au Vice-Recteur pour validation', demande: true });
 });
 
 // CRUD Promo-Filières

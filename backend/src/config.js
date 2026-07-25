@@ -21,7 +21,7 @@ module.exports = {
 
   // Hiérarchie des rôles (plus l'index est bas, plus le rôle est élevé)
   ROLES: [
-    'RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'COORDONNATEUR', 'CHEF_SERVICE',
+    'RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'DIRECTEUR_DEVES', 'COORDONNATEUR', 'CHEF_SERVICE',
     'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION',
     'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION',
     'CHARGE_SCOLARITE',
@@ -49,6 +49,7 @@ module.exports = {
     VICE_RECTEUR: 'Vice-Recteur Pédagogie',
     DIRECTEUR: 'Directeur DFIP',
     DIRECTEUR_DES: 'Directeur des Études et de la Scolarité (DES)',
+    DIRECTEUR_DEVES: 'Directeur DEVES',
     COORDONNATEUR: 'Coordonnateur du Projet',
     CHARGE_SCOLARITE: 'Chargé de la Scolarité (ENO)',
     CHEF_SERVICE: 'Chef de Service',

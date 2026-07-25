@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
 import { LayoutGrid, LogIn } from 'lucide-react';
-import { useTimeline, OverlaysDevant, BandeauVacances, EnTeteUnites, FondGrille, ZoomBar } from './PlanningAnnuel';
+import { useTimelineFenetre, BarreZoom, BarreZoomV, OverlaysDevant, BandeauVacances, EnTeteUnites, FondGrille } from './PlanningAnnuel';
 
-/* Version PUBLIQUE (lecture seule, sans compte) du planning annuel */
+/* Version PUBLIQUE (lecture seule, sans compte) du planning annuel —
+   mêmes commandes que le planning connecté : zoom temporel continu (barre à
+   2 poignées + défilement), zoom vertical, en-tête et 1re colonne FIGÉS. */
+const JOUR_MS = 86400000;
 const SEGMENTS = {
   RECTORAT: { label: 'UN-CHK (Rectorat)', color: '#1e3a5f', light: '#e8eef5' },
   DFIP_DES: { label: "Direction de la Formation et de l'Ingénierie pédagogique (DFIP) & Direction des Etudes et de la Scolarité (DES)", color: '#0e7490', light: '#e6f4f7' },
@@ -24,7 +27,6 @@ export default function PlanningPublic() {
   const [data, setData] = useState(null);
   const [anneeId, setAnneeId] = useState(null);
   const [segmentActif, setSegmentActif] = useState(null);
-  const [zoom, setZoom] = useState({ mode: 'ANNEE' });
 
   useEffect(() => {
     axios.get(`/api/public/planning${anneeId ? `?annee_id=${anneeId}` : ''}`)
@@ -33,24 +35,57 @@ export default function PlanningPublic() {
   }, [anneeId]);
 
   const annee = data?.annees?.find(a => a.id === (anneeId || data?.annee_id));
-  const tl = useTimeline(annee?.libelle || '', zoom);
+
+  // Zoom temporel continu : domaine = 3 années académiques, fenêtre par défaut = année choisie
+  const anneeBase = parseInt(annee?.libelle) || new Date().getFullYear();
+  const domaine = useMemo(() => ({ t0: +new Date(anneeBase - 1, 10, 1), t1: +new Date(anneeBase + 2, 10, 1) }), [anneeBase]);
+  const fenetreDefaut = useMemo(() => ({ t0: +new Date(anneeBase, 10, 1), t1: +new Date(anneeBase + 1, 10, 1) }), [anneeBase]);
+  const [fenetre, setFenetre] = useState(fenetreDefaut);
+  useEffect(() => { setFenetre(fenetreDefaut); }, [fenetreDefaut]);
+  const tl = useTimelineFenetre(fenetre);
+
+  // Zoom vertical : hauteur des lignes + synchronisation barre ↔ défilement
+  const [fenV, setFenV] = useState({ v0: 0, v1: 1 });
+  const facteurV = 1 / (fenV.v1 - fenV.v0);
+  const boardRef = useRef(null);
+  const majDepuisBarre = useRef(false);
+  useEffect(() => {
+    const el = boardRef.current;
+    if (!el) return;
+    const w = fenV.v1 - fenV.v0;
+    majDepuisBarre.current = true;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    el.scrollTop = w >= 1 ? el.scrollTop : (fenV.v0 / (1 - w)) * Math.max(0, maxScroll);
+    const t = setTimeout(() => { majDepuisBarre.current = false; }, 60);
+    return () => clearTimeout(t);
+  }, [fenV]);
+  function onScrollBoard(e) {
+    if (majDepuisBarre.current) return;
+    const el = e.currentTarget;
+    const w = fenV.v1 - fenV.v0;
+    if (w >= 1) return;
+    const maxScroll = el.scrollHeight - el.clientHeight;
+    if (maxScroll <= 0) return;
+    const v0 = (el.scrollTop / maxScroll) * (1 - w);
+    setFenV({ v0, v1: v0 + w });
+  }
+
   const feriesRange = useMemo(() => {
     if (!data) return [];
     const out = [];
     for (const f of data.feries) {
       if (f.recurrent) {
         const mmdd = f.date.slice(5);
-        [tl.start.getFullYear(), tl.end.getFullYear()].forEach(y => {
+        for (let y = tl.start.getFullYear(); y <= tl.end.getFullYear(); y++) {
           const d = `${y}-${mmdd}`;
           if (new Date(d) >= tl.start && new Date(d) <= tl.end) out.push({ ...f, date: d });
-        });
+        }
       } else if (new Date(f.date) >= tl.start && new Date(f.date) <= tl.end) out.push(f);
     }
     return out;
   }, [data, tl]);
 
   const activites = data?.activites || [];
-  // Lignes paramétrées côté serveur (fallback : structure historique)
   const lignesMap = useMemo(() => {
     const m = {};
     (data?.lignes || []).forEach(l => { (m[l.segment] = m[l.segment] || []).push(l.nom); });
@@ -68,7 +103,6 @@ export default function PlanningPublic() {
           <p className="text-slate-400 text-xs">Université numérique Cheikh Hamidou KANE - UnCHK · Consultation publique</p>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
-          <ZoomBar zoom={zoom} setZoom={setZoom} libelle={annee?.libelle || ''} />
           <select value={anneeId || ''} onChange={e => setAnneeId(parseInt(e.target.value))} className="!w-auto">
             {(data?.annees || []).map(a => <option key={a.id} value={a.id}>{a.libelle}{a.active ? ' (active)' : ''}</option>)}
           </select>
@@ -100,12 +134,27 @@ export default function PlanningPublic() {
           </div>
         </div>
 
+        {/* Barre de zoom temporel continu (comme la vue connectée) */}
+        <BarreZoom
+          domaine={domaine} fenetre={fenetre} setFenetre={setFenetre}
+          onReset={() => setFenetre(fenetreDefaut)}
+          reperes={[
+            ...activites.map(a => ({
+              t0: Date.parse(a.date_debut), t1: Date.parse(a.date_fin) + JOUR_MS,
+              color: (SEGMENTS[a.segment] || SEGMENTS.RECTORAT).color,
+            })),
+            ...(data?.vacances || []).map(v => ({ t0: Date.parse(v.date_debut), t1: Date.parse(v.date_fin) + JOUR_MS, color: '#ef4444' })),
+          ]}
+        />
+
         {!data ? (
           <div className="flex items-center justify-center h-40">
             <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
-          <div className="card !p-0 overflow-x-auto nav-scroll">
+          /* Tableau (défilement H+V, en-tête et 1re colonne figés) + barre de zoom verticale */
+          <div className="flex items-stretch gap-2">
+          <div ref={boardRef} onScroll={onScrollBoard} className="card !p-0 overflow-auto nav-scroll max-h-[72vh] flex-1">
             <div className="min-w-[1100px]">
               <div className="flex sticky top-0 bg-white z-40 border-b border-slate-200">
                 <div className="w-56 shrink-0 px-3 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide border-r border-slate-200 sticky left-0 bg-white z-40">
@@ -132,10 +181,10 @@ export default function PlanningPublic() {
                         const barres = acts.filter(a => a.ligne === ligne);
                         return (
                           <div key={ligne} className="flex border-t border-slate-50">
-                            <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 sticky left-0 bg-white z-30 ${focus ? 'py-4 text-sm font-medium' : 'py-2 text-xs'}`} title={ligne}>
+                            <div className={`w-56 shrink-0 px-3 border-r border-slate-100 truncate text-slate-600 sticky left-0 bg-white z-30 flex items-center ${focus ? 'text-sm font-medium' : 'text-xs'}`} title={ligne}>
                               {ligne}
                             </div>
-                            <div className={`flex-1 relative ${focus ? 'h-14' : 'h-9'}`}>
+                            <div className="flex-1 relative" style={{ height: Math.round((focus ? 56 : 36) * facteurV) }}>
                               <FondGrille tl={tl} />
                               {barres.map(a => {
                                 const lr = tl.pctRaw(a.date_debut), rr = tl.pctRaw(a.date_fin);
@@ -161,9 +210,12 @@ export default function PlanningPublic() {
               </div>
             </div>
           </div>
+          <BarreZoomV fen={fenV} setFen={setFenV} onReset={() => setFenV({ v0: 0, v1: 1 })} />
+          </div>
         )}
         <p className="text-xs text-slate-400 text-center">
-          Consultation publique en lecture seule — © {new Date().getFullYear()} UnCHK, Portail DFIP
+          🔍 Zoom : rapprochez les poignées de la barre ci-dessus ou glissez le bloc pour faire défiler · barre de droite = zoom vertical.
+          <br />Consultation publique en lecture seule — © {new Date().getFullYear()} UnCHK, Portail DFIP
         </p>
       </main>
     </div>

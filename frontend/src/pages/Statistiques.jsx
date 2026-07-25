@@ -92,8 +92,12 @@ function Barres({ titre, data, suffixe = '', action }) {
 
 export default function Statistiques() {
   const { user } = useAuth();
-  const estGestion = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Saisie des effectifs : Directeur DES UNIQUEMENT (rôle réel)
+  const estSaisie = user?.role_reel === 'DIRECTEUR_DES';
+  // Gestion des ENO : Direction/Admin + Directeur DEVES (ajout des ENO)
+  const estGestion = ['DIRECTEUR', 'ADMIN_PORTAIL', 'DIRECTEUR_DEVES'].includes(user?.role);
   const estCharge = user?.role === 'CHARGE_SCOLARITE';
+  const estDeves = user?.role === 'DIRECTEUR_DEVES';
 
   const [onglet, setOnglet] = useState(estCharge ? 'ENO' : 'SYNTHESE');
   const [effectifs, setEffectifs] = useState([]);   // toutes les lignes (formation × ENO × promo × niveau)
@@ -118,10 +122,10 @@ export default function Statistiques() {
   if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>;
 
   const ONGLETS = [
-    !estCharge && ['SYNTHESE', BarChart3, 'Tableau de bord'],
-    !estCharge && ['EFFECTIFS', Users, 'Effectifs'],
+    !estCharge && !estDeves && ['SYNTHESE', BarChart3, 'Tableau de bord'],
+    !estCharge && !estDeves && ['EFFECTIFS', Users, 'Effectifs'],
     ['ENO', Building2, 'ENO & capacités'],
-    !estCharge && ['SIMULATEUR', FlaskConical, 'Simulateur'],
+    !estCharge && !estDeves && ['SIMULATEUR', FlaskConical, 'Simulateur'],
   ].filter(Boolean);
 
   return (
@@ -144,7 +148,7 @@ export default function Statistiques() {
       </div>
 
       {onglet === 'SYNTHESE' && <Synthese effectifs={effectifs} enos={enos} />}
-      {onglet === 'EFFECTIFS' && <Effectifs enos={enos} estGestion={estGestion} />}
+      {onglet === 'EFFECTIFS' && <Effectifs enos={enos} estGestion={estSaisie} />}
       {onglet === 'ENO' && <GestionEno enos={enos} estGestion={estGestion} estCharge={estCharge} monEno={user?.eno_id} onChange={load} />}
       {onglet === 'SIMULATEUR' && <Simulateur cursus={cursus} />}
     </div>
@@ -312,13 +316,15 @@ function Effectifs({ enos, estGestion }) {
           </div>
         </div>
       </div>
-      <div className="overflow-x-auto nav-scroll">
-        <table className="text-xs min-w-max">
-          <thead>
+      {/* Défilement vertical + horizontal, volets FIGÉS : en-tête en haut,
+          1re colonne à gauche, lignes Total/Capacité en bas (façon Excel) */}
+      <div className="overflow-auto nav-scroll max-h-[65vh] relative">
+        <table className="text-xs min-w-max w-full">
+          <thead className="sticky top-0 z-30">
             <tr className="bg-slate-50 border-b border-slate-200">
-              <th className="text-left px-3 py-2 font-bold text-slate-500 sticky left-0 bg-slate-50 z-10">Formation</th>
-              {enos.map(e => <th key={e.id} className="px-2 py-2 font-bold text-slate-500 whitespace-nowrap" title={`Capacité : ${e.capacite_effective}`}>{e.nom}</th>)}
-              <th className="px-3 py-2 font-bold text-slate-600">Total</th>
+              <th className="text-left px-3 py-2 font-bold text-slate-500 sticky left-0 bg-slate-50 z-40">Formation</th>
+              {enos.map(e => <th key={e.id} className="px-2 py-2 font-bold text-slate-500 whitespace-nowrap bg-slate-50" title={`Capacité : ${e.capacite_effective}`}>{e.nom}</th>)}
+              <th className="px-3 py-2 font-bold text-slate-600 bg-slate-50">Total</th>
             </tr>
           </thead>
           <tbody>
@@ -326,36 +332,88 @@ function Effectifs({ enos, estGestion }) {
               const total = rows.filter(r => r.formation_id === f.id).reduce((s, r) => s + r.nombre, 0);
               return (
                 <tr key={f.id} className="border-b border-slate-50 hover:bg-slate-50/50" style={segment ? { background: `${POLE_LIGHT[f.pole]}55` } : undefined}>
-                  <td className="px-3 py-1.5 font-semibold sticky left-0 bg-white z-10" style={{ color: POLE_COLOR[f.pole] || '#334155' }} title={f.nom}>
+                  <td className="px-3 py-1.5 font-semibold sticky left-0 bg-white z-20" style={{ color: POLE_COLOR[f.pole] || '#334155' }} title={f.nom}>
                     {f.code} <span className="text-slate-400 font-normal">({f.pole})</span>
                   </td>
-                  {enos.map(e => (
-                    <td key={e.id} className="px-1 py-1 text-center">
-                      {estGestion ? (
-                        <input type="number" min="0" defaultValue={val(f.id, e.id)} key={`${promo}-${niveau}-${f.id}-${e.id}-${val(f.id, e.id)}`}
-                          onBlur={ev => { if (String(ev.target.value) !== String(val(f.id, e.id))) maj(f.id, e.id, ev.target.value); }}
-                          className="!w-14 !py-0.5 !px-1 !text-xs text-center" />
-                      ) : <span className="tabular-nums text-slate-600">{val(f.id, e.id) || '—'}</span>}
-                    </td>
-                  ))}
+                  {enos.map(e => {
+                    const v = val(f.id, e.id);
+                    // Formation dont le nombre d'apprenants à l'ENO EXCÈDE la capacité de l'ENO → orange
+                    const excede = Number(v) > 0 && e.capacite_effective > 0 && Number(v) > e.capacite_effective;
+                    return (
+                      <td key={e.id} className="px-1 py-1 text-center" style={excede ? { background: '#f97316' } : undefined}
+                        title={excede ? `⚠ ${v} apprenants > capacité ${e.capacite_effective} de l'ENO ${e.nom}` : undefined}>
+                        {estGestion ? (
+                          <input type="number" min="0" defaultValue={v} key={`${promo}-${niveau}-${f.id}-${e.id}-${v}`}
+                            onBlur={ev => { if (String(ev.target.value) !== String(v)) maj(f.id, e.id, ev.target.value); }}
+                            className={`!w-14 !py-0.5 !px-1 !text-xs text-center ${excede ? '!bg-orange-500 !text-white font-bold !border-orange-600' : ''}`} />
+                        ) : <span className={`tabular-nums ${excede ? 'text-white font-bold' : 'text-slate-600'}`}>{v || '—'}</span>}
+                      </td>
+                    );
+                  })}
                   <td className="px-3 py-1.5 text-center font-bold text-slate-700 tabular-nums">{total.toLocaleString('fr-FR')}</td>
                 </tr>
               );
             })}
             {formations.length === 0 && <tr><td colSpan={enos.length + 2} className="px-3 py-8 text-center text-slate-400">Aucun effectif pour ces critères</td></tr>}
           </tbody>
+          {formations.length > 0 && (
+            <tfoot className="sticky bottom-0 z-30">
+              {/* Total par ENO (formations affichées) */}
+              <tr className="border-t-2 border-green-600">
+                <td className="px-3 py-2 font-bold text-green-900 bg-green-100 sticky left-0 z-40">Total par ENO</td>
+                {enos.map(e => {
+                  const t = formations.reduce((s, f) => s + (Number(val(f.id, e.id)) || 0), 0);
+                  return <td key={e.id} className="px-2 py-2 text-center font-bold text-green-900 bg-green-100 tabular-nums">{t.toLocaleString('fr-FR')}</td>;
+                })}
+                <td className="px-3 py-2 text-center font-bold text-green-900 bg-green-100 tabular-nums">
+                  {formations.reduce((s, f) => s + rows.filter(r => r.formation_id === f.id).reduce((x, r) => x + r.nombre, 0), 0).toLocaleString('fr-FR')}
+                </td>
+              </tr>
+              {/* Capacité d'accueil par ENO — ROUGE quand le total dépasse la capacité */}
+              <tr>
+                <td className="px-3 py-2 font-bold text-slate-700 bg-slate-100 sticky left-0 z-40">Capacité par ENO</td>
+                {enos.map(e => {
+                  const t = formations.reduce((s, f) => s + (Number(val(f.id, e.id)) || 0), 0);
+                  const sature = e.capacite_effective > 0 && t > e.capacite_effective;
+                  return (
+                    <td key={e.id} className={`px-2 py-2 text-center font-bold tabular-nums ${sature ? 'bg-red-600 text-white' : 'bg-slate-100 text-slate-700'}`}
+                      title={sature ? `⚠ ENO ${e.nom} : ${t} apprenants pour ${e.capacite_effective} places` : `ENO ${e.nom}`}>
+                      {e.capacite_effective.toLocaleString('fr-FR')}
+                    </td>
+                  );
+                })}
+                <td className="px-3 py-2 text-center font-bold bg-slate-100 text-slate-700 tabular-nums">
+                  {enos.reduce((s, e) => s + e.capacite_effective, 0).toLocaleString('fr-FR')}
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
-      {estGestion && <p className="text-[11px] text-slate-400 px-4 py-2">✏️ Saisie réservée au Directeur DES / à l'administration — modifiez une cellule puis quittez le champ pour enregistrer.</p>}
+      <div className="px-4 py-2 flex items-center gap-4 flex-wrap text-[11px] text-slate-500 border-t border-slate-100">
+        <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded bg-orange-500 inline-block" /> Effectif de formation supérieur à la capacité de l'ENO</span>
+        <span className="flex items-center gap-1.5"><span className="w-3.5 h-3.5 rounded bg-red-600 inline-block" /> ENO dont le total dépasse sa capacité d'accueil</span>
+        {estGestion && <span className="ml-auto">✏️ Saisie réservée au Directeur DES — modifiez une cellule puis quittez le champ pour enregistrer.</span>}
+      </div>
     </div>
   );
 }
 
-/* ===== Onglet ENO & capacités : recherche + export ===== */
+/* ===== Onglet ENO & capacités : cartes OU liste triable + recherche + export ===== */
 function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
   const [nouveau, setNouveau] = useState('');
   const [recherche, setRecherche] = useState('');
+  const [vue, setVue] = useState('CARTES');            // CARTES | LISTE
+  const [tri, setTri] = useState({ cle: 'nom', sens: 1 }); // sens 1 = croissant, -1 = décroissant
   const visibles = enos.filter(e => !recherche || e.nom.toLowerCase().includes(recherche.toLowerCase()));
+
+  const trier = (cle) => setTri(t => ({ cle, sens: t.cle === cle ? -t.sens : 1 }));
+  const listeTriee = useMemo(() => [...visibles].sort((a, b) => {
+    const va = tri.cle === 'salles' ? a.salles.length : a[tri.cle];
+    const vb = tri.cle === 'salles' ? b.salles.length : b[tri.cle];
+    const cmp = typeof va === 'string' ? va.localeCompare(vb, 'fr') : (va || 0) - (vb || 0);
+    return cmp * tri.sens;
+  }), [visibles, tri]);
 
   async function ajouterEno() {
     if (!nouveau.trim()) return;
@@ -389,8 +447,55 @@ function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
           </>
         )}
         <input value={recherche} onChange={e => setRecherche(e.target.value)} placeholder="🔎 Rechercher un ENO..." className={`!py-2 ${estGestion ? '!w-48' : 'flex-1'}`} />
+        {/* Bascule cartes / liste triable */}
+        <div className="flex rounded-xl border border-slate-200 overflow-hidden text-xs font-semibold">
+          <button onClick={() => setVue('CARTES')} className={`px-3 py-2 ${vue === 'CARTES' ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>▦ Cartes</button>
+          <button onClick={() => setVue('LISTE')} className={`px-3 py-2 ${vue === 'LISTE' ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-500 hover:bg-slate-50'}`}>☰ Liste</button>
+        </div>
         <BoutonExport onClick={exporter} />
       </div>
+
+      {vue === 'LISTE' && (
+        <div className="card !p-0 overflow-x-auto nav-scroll">
+          <table className="w-full text-xs min-w-max">
+            <thead>
+              <tr className="bg-slate-50 border-b border-slate-200">
+                {[['nom', 'ENO'], ['capacite', 'Capacité globale'], ['capacite_effective', 'Capacité effective'], ['salles', 'Salles'], ['actif', 'Actif']].map(([cle, lbl]) => (
+                  <th key={cle} onClick={() => trier(cle)}
+                    className="px-3 py-2 text-left font-bold text-slate-500 cursor-pointer select-none hover:text-[#1e3a5f] whitespace-nowrap"
+                    title="Cliquer pour trier (re-cliquer pour inverser)">
+                    {lbl} {tri.cle === cle ? (tri.sens === 1 ? '▲' : '▼') : <span className="text-slate-300">↕</span>}
+                  </th>
+                ))}
+                <th className="px-3 py-2 text-left font-bold text-slate-500">Note</th>
+              </tr>
+            </thead>
+            <tbody>
+              {listeTriee.map(e => (
+                <tr key={e.id} className={`border-b border-slate-50 hover:bg-slate-50/60 ${!e.actif ? 'opacity-50' : ''} ${estCharge && monEno === e.id ? 'bg-teal-50' : ''}`}>
+                  <td className="px-3 py-2 font-semibold text-slate-800">ENO {e.nom}{estCharge && monEno === e.id && <span className="badge bg-teal-100 text-teal-700 text-[10px] ml-1.5">Mon ENO</span>}</td>
+                  <td className="px-3 py-2 tabular-nums">{e.capacite.toLocaleString('fr-FR')}</td>
+                  <td className="px-3 py-2 tabular-nums font-bold text-[#1e3a5f]">{e.capacite_effective.toLocaleString('fr-FR')}</td>
+                  <td className="px-3 py-2 tabular-nums">{e.salles.length}</td>
+                  <td className="px-3 py-2">{e.actif ? '✓' : '—'}</td>
+                  <td className="px-3 py-2 text-slate-500 max-w-64 truncate" title={e.note || ''}>{e.note || ''}</td>
+                </tr>
+              ))}
+            </tbody>
+            <tfoot>
+              <tr className="border-t-2 border-slate-300 bg-slate-50 font-bold">
+                <td className="px-3 py-2">TOTAL ({listeTriee.length} ENO)</td>
+                <td className="px-3 py-2 tabular-nums">{listeTriee.reduce((s, e) => s + e.capacite, 0).toLocaleString('fr-FR')}</td>
+                <td className="px-3 py-2 tabular-nums text-[#1e3a5f]">{listeTriee.reduce((s, e) => s + e.capacite_effective, 0).toLocaleString('fr-FR')}</td>
+                <td className="px-3 py-2 tabular-nums">{listeTriee.reduce((s, e) => s + e.salles.length, 0)}</td>
+                <td colSpan={2} />
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      {vue === 'CARTES' && (
       <div className="grid md:grid-cols-2 xl:grid-cols-3 gap-4">
         {visibles.map(e => {
           const editable = estGestion || (estCharge && monEno === e.id);
@@ -430,6 +535,7 @@ function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
           );
         })}
       </div>
+      )}
     </div>
   );
 }

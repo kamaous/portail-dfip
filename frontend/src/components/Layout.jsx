@@ -90,15 +90,26 @@ export default function Layout({ children }) {
         <nav className={`flex-1 overflow-y-auto nav-scroll py-3 space-y-1 ${open ? 'px-3' : 'px-2'}`}>
           {ROLES_VISITEURS.includes(user?.role) ? (
             <>
-              {/* Visiteur : consultation du planning annuel uniquement */}
+              {/* Visiteur : consultation du planning annuel (+ validation référentiel pour le Vice-Recteur) */}
               <SectionTitle open={open}>Consultation</SectionTitle>
               <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
+              {user?.role === 'VICE_RECTEUR' && (
+                <NavItem to="/referentiel" icon={Building2} label="Référentiel" open={open} />
+              )}
             </>
           ) : user?.role === 'CHARGE_SCOLARITE' ? (
             <>
               {/* Chargé de scolarité (ENO) : capacités de son ENO + planning */}
               <SectionTitle open={open}>Mon ENO</SectionTitle>
               <NavItem to="/statistiques" icon={BarChart3} label="Statistiques (ENO)" open={open} />
+              <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
+            </>
+          ) : user?.role === 'DIRECTEUR_DEVES' ? (
+            <>
+              {/* Directeur DEVES : ajout et gestion des ENO + planning */}
+              <SectionTitle open={open}>ENO</SectionTitle>
+              <NavItem to="/statistiques" icon={BarChart3} label="Statistiques (ENO)" open={open} />
+              <NavItem to="/referentiel" icon={Building2} label="Référentiel" open={open} />
               <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
             </>
           ) : (
@@ -119,6 +130,7 @@ export default function Layout({ children }) {
             <>
               <SectionTitle open={open}>Administration</SectionTitle>
               <NavItem to="/utilisateurs" icon={Users} label="Utilisateurs" open={open} />
+              <NavItem to="/referentiel" icon={Building2} label="Référentiel" open={open} />
               <NavItem to="/poles" icon={Building2} label="Pôles & Filières" open={open} />
               {(isAdmin || isDirecteur) && (
                 <NavItem to="/connexions" icon={Settings} label="Connexions" open={open} />
