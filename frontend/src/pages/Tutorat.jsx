@@ -879,8 +879,8 @@ export default function Tutorat() {
                   return {
                     debut, fin,
                     color: ETAT_BAR[etat] || seg.color,
-                    label: `${!segment ? `${t.pole_code} · ` : ''}${t.promotion_code || '?'} - ${t.formation_code || t.formation_nom || t.pole_code} ${t.niveau || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
-                    titre: `${t.pole_code} — Promotion ${t.promotion_code || '?'} — ${t.formation_nom || 'Formation non précisée'} ${NIVEAUX[t.niveau]?.label || ''} Semestre ${(t.semestre_code || '').replace('S', '')} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[etat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
+                    label: `${!segment ? `${t.pole_code} · ` : ''}${t.promotion_code ? `${t.promotion_code} - ` : ''}${t.formation_code || t.formation_nom || t.pole_code} ${t.niveau || ''} ${t.semestre_code || ''} (${Math.round(progressionDates(t) * 100)}%)`,
+                    titre: `${t.pole_code}${t.promotion_code ? ` — Promotion ${t.promotion_code}` : ' — promotion non renseignée'} — ${t.formation_nom || 'Formation non précisée'} ${NIVEAUX[t.niveau]?.label || ''} Semestre ${(t.semestre_code || '').replace('S', '')} : ${debut} → ${fin} — ${ETATS.etat_tutorat.options[etat]} · progression ${Math.round(progressionDates(t) * 100)}% (cliquer pour la fiche)`,
                     onClick: () => setDetailId(t.id),
                   };
                 }),
@@ -900,7 +900,7 @@ export default function Tutorat() {
                       title={`${t.formation_nom || 'Formation non précisée'} — dates non renseignées (cliquer pour la fiche)`}
                       className="px-2.5 py-1 rounded-lg border-2 border-dashed bg-white font-semibold hover:bg-slate-50"
                       style={{ color: seg.color, borderColor: `${seg.color}66` }}>
-                      {t.promotion_code || '?'} - {t.formation_code || t.formation_nom || t.pole_code} {t.niveau || ''} {t.semestre_code || ''}
+                      {t.promotion_code ? `${t.promotion_code} - ` : ''}{t.formation_code || t.formation_nom || t.pole_code} {t.niveau || ''} {t.semestre_code || ''}
                     </button>
                   );
                 })}

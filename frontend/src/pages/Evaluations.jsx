@@ -494,8 +494,8 @@ export default function Evaluations() {
                 return {
                   debut: s.date_demarrage, fin,
                   color: s.etat === 'ANNULE' ? '#dc2626' : s.etat === 'SUSPENDU' ? '#7c3aed' : (ETAT_BAR[s.etat_eval] || seg.color),
-                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${!segment ? `${s.pole_code} · ` : ''}${s.promotion_code || '?'} - ${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
-                  titre: `${s.pole_code} — Promotion ${s.promotion_code || '?'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
+                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${!segment ? `${s.pole_code} · ` : ''}${s.promotion_code ? `${s.promotion_code} - ` : ''}${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
+                  titre: `${s.pole_code}${s.promotion_code ? ` — Promotion ${s.promotion_code}` : ' — promotion non renseignée'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
                   onClick: () => setDetailId(s.id),
                 };
               }),
@@ -515,7 +515,7 @@ export default function Evaluations() {
                       title={`${s.formation_nom || 'Formation non précisée'} — date de démarrage non renseignée (cliquer pour les détails)`}
                       className="px-2.5 py-1 rounded-lg border-2 border-dashed bg-white font-semibold hover:bg-slate-50"
                       style={{ color: seg.color, borderColor: `${seg.color}66` }}>
-                      {s.promotion_code || '?'} - {s.formation_code || s.formation_nom || s.pole_code} {s.niveau || ''} {s.semestre_code || ''} {SESSION_CODE[s.session_num]}
+                      {s.promotion_code ? `${s.promotion_code} - ` : ''}{s.formation_code || s.formation_nom || s.pole_code} {s.niveau || ''} {s.semestre_code || ''} {SESSION_CODE[s.session_num]}
                     </button>
                   );
                 })}
@@ -765,7 +765,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
       )}
 
       {/* Évaluation ANNULÉE : suppression directe (Chef div DFE, Directeur, Admin) */}
-      {s.etat === 'ANNULE' && canDelete && !s.activite_id && (
+      {s.etat === 'ANNULE' && canDelete && (
         <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-100 mt-3">
           <button onClick={() => del(s.id)} className="text-xs font-medium text-red-500 hover:bg-red-50 px-2.5 py-1.5 rounded-lg border border-red-200 flex items-center gap-1.5">
             <Trash2 size={13} /> Supprimer l'évaluation annulée

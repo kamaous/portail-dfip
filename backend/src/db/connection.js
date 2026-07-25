@@ -485,7 +485,7 @@ function runMigrations() {
   // Typage rétroactif des plages d'évaluations historiques (lignes « Évaluations XXX »)
   db.exec(`
     UPDATE planning_activites SET type = 'EVALUATIONS', sous_type = COALESCE(sous_type, 'EXAMEN')
-    WHERE type IS NULL AND ligne LIKE 'Évaluations %';
+    WHERE type IS NULL AND ligne LIKE 'Évaluations %' AND IFNULL(sous_type, '') <> 'DETACHE';
   `);
 
   // Liaison planning → modules : chaque activité typée alimente automatiquement

@@ -395,12 +395,14 @@ router.post('/deliberations', auth, requireRole(...DELIB_ROLES), (req, res) => {
 
 // DELETE
 /* Suppression : Directeur DFIP, Admin et Chef division DFE (suppression directe).
-   Une évaluation DÉLIBÉRÉE reste supprimable uniquement par la Direction. */
+   Une évaluation DÉLIBÉRÉE reste supprimable uniquement par la Direction.
+   Une évaluation ANNULÉE liée au Planning annuel est supprimable : son activité
+   de planning est détachée (type neutralisé) pour éviter toute re-création. */
 router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_DIV_EVALUATION'), (req, res) => {
   const db = getDb();
   const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(req.params.id);
   if (!s) return res.status(404).json({ error: 'Évaluation introuvable' });
-  if (s.activite_id) {
+  if (s.activite_id && s.etat !== 'ANNULE') {
     return res.status(409).json({ error: 'Évaluation liée au Planning annuel : supprimez l\'activité dans le planning.' });
   }
   const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
@@ -408,9 +410,13 @@ router.delete('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_DIV_
     return res.status(403).json({ error: 'Évaluation délibérée (clôturée) : suppression réservée au Directeur DFIP.' });
   }
 
+  if (s.activite_id) {
+    // sous_type = 'DETACHE' : marqueur qui empêche le re-typage rétroactif au démarrage
+    db.prepare("UPDATE planning_activites SET type = NULL, sous_type = 'DETACHE' WHERE id = ?").run(s.activite_id);
+  }
   db.prepare('DELETE FROM sessions_examen WHERE id = ?').run(req.params.id);
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
-    .run(req.user.id, 'DELETE_EVALUATION', 'EVALUATIONS', `id=${req.params.id}`);
+    .run(req.user.id, 'DELETE_EVALUATION', 'EVALUATIONS', `id=${req.params.id}${s.activite_id ? ` (annulée, activité planning ${s.activite_id} détachée)` : ''}`);
   res.json({ message: 'Évaluation supprimée' });
 });
 
