@@ -168,14 +168,74 @@ router.post('/', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATI
 });
 
 // PUT /api/incidents/:id/statut
+/* GET /api/incidents/:id/cibles — éléments impactés candidats pour la résolution :
+   évaluations et fiches tutorat du périmètre de l'incident (pôle, période de
+   chevauchement) auxquels la décision pourra s'appliquer AUTOMATIQUEMENT. */
+router.get('/:id/cibles', auth, (req, res) => {
+  const db = getDb();
+  const inc = db.prepare('SELECT * FROM incidents WHERE id = ?').get(req.params.id);
+  if (!inc) return res.status(404).json({ error: 'Incident non trouvé' });
+  const debut = inc.date_debut || inc.date_incident;
+  const fin = inc.date_fin || debut;
+  const toucheEval = !!(inc.conseq_eval || inc.consequence_examens);
+  const toucheTutorat = !!(inc.conseq_tutorat || inc.consequence_tutorat);
+  const toutType = !toucheEval && !toucheTutorat; // aucune conséquence précisée → proposer les deux
+
+  let evaluations = [];
+  if (toucheEval || toutType) {
+    let sql = `
+      SELECT se.id, se.date_demarrage, se.date_fin_prevue, se.heure_debut, se.heure_fin,
+             se.session_num, se.niveau, se.semestre_code, se.etat, se.activite_id,
+             f.code as fc, f.nom as fn, p.code as pc, pr.code as promo
+      FROM sessions_examen se
+      LEFT JOIN formations f ON f.id = se.formation_id
+      LEFT JOIN poles p ON p.id = se.pole_id
+      LEFT JOIN promotions pr ON pr.id = se.promotion_id
+      WHERE se.etat NOT IN ('ANNULE')`;
+    const params = [];
+    if (inc.pole_id) { sql += ' AND se.pole_id = ?'; params.push(inc.pole_id); }
+    if (debut) { sql += ' AND se.date_demarrage IS NOT NULL AND se.date_demarrage <= ? AND COALESCE(se.date_fin_prevue, se.date_demarrage) >= ?'; params.push(fin, debut); }
+    sql += ' ORDER BY se.date_demarrage LIMIT 40';
+    evaluations = db.prepare(sql).all(...params).map(e => ({
+      type: 'SESSION_EXAMEN', id: e.id,
+      libelle: `${e.pc || ''} · ${e.fc || e.fn || 'Formation —'} ${e.promo || ''} ${e.niveau || ''} ${e.semestre_code || ''} · ${e.date_demarrage || '—'} → ${e.date_fin_prevue || '—'}${e.heure_debut ? ` (${e.heure_debut}-${e.heure_fin || ''})` : ''}${e.etat === 'SUSPENDU' ? ' ⏸' : ''}${e.activite_id ? ' · 🔗 issue du planning' : ''}`,
+      lie: inc.ref_type === 'SESSION_EXAMEN' && inc.ref_id === e.id,
+    }));
+  }
+
+  let tutorats = [];
+  if (toucheTutorat || toutType) {
+    let sql = `
+      SELECT t.id, t.date_debut, t.date_fin, t.niveau, t.semestre_code,
+             f.code as fc, f.nom as fn, p.code as pc, pr.code as promo
+      FROM tutorat t
+      LEFT JOIN formations f ON f.id = t.formation_id
+      LEFT JOIN poles p ON p.id = t.pole_id
+      LEFT JOIN promotions pr ON pr.id = t.promotion_id
+      WHERE t.statut_fiche != 'REJETEE'`;
+    const params = [];
+    if (inc.pole_id) { sql += ' AND t.pole_id = ?'; params.push(inc.pole_id); }
+    if (debut) { sql += ' AND t.date_debut IS NOT NULL AND t.date_debut <= ? AND COALESCE(t.date_fin, t.date_debut) >= ?'; params.push(fin, debut); }
+    sql += ' ORDER BY t.date_debut LIMIT 40';
+    tutorats = db.prepare(sql).all(...params).map(t => ({
+      type: 'TUTORAT', id: t.id,
+      libelle: `${t.pc || ''} · ${t.fc || t.fn || 'Formation —'} ${t.promo || ''} ${t.niveau || ''} ${t.semestre_code || ''} · ${t.date_debut || '—'} → ${t.date_fin || '—'}`,
+      lie: inc.ref_type === 'TUTORAT' && inc.ref_id === t.id,
+    }));
+  }
+
+  res.json({ evaluations, tutorats });
+});
+
 /* POST /api/incidents/:id/resoudre — RÉSOLUTION DÉCISIONNELLE du Directeur DFIP.
-   Décisions possibles, appliquées à l'élément lié (fiche tutorat / évaluation) :
-   - PROLONGER : étend la date de fin de N jours (ex. +5 j si l'incident a duré 5 j)
-   - REPORTER  : décale la période à partir d'une nouvelle date de début
-   - ANNULER   : annule l'évaluation liée (ou documente l'arrêt du tutorat)
-   - INTACT    : les dates sont conservées, la décision est documentée */
+   La décision est appliquée AUTOMATIQUEMENT aux éléments impactés : les cibles[]
+   cochées dans la boîte de dialogue (évaluations / fiches tutorat du périmètre),
+   sinon l'élément lié à l'incident.
+   - PROLONGER : fin + N jours       - REPORTER  : période décalée (durée conservée)
+   - FIN_SEULE : nouvelle fin        - SUSPENDRE / ANNULER : changement d'état
+   - INTACT    : dates conservées, décision documentée */
 router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
-  const { decision, jours, nouvelle_date, nouvelle_fin, resolution } = req.body;
+  const { decision, jours, nouvelle_date, nouvelle_fin, resolution, cibles } = req.body;
   if (!['PROLONGER', 'REPORTER', 'ANNULER', 'SUSPENDRE', 'FIN_SEULE', 'INTACT'].includes(decision)) {
     return res.status(400).json({ error: 'Décision invalide' });
   }
@@ -192,75 +252,69 @@ router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (r
   };
   const actions = [];
 
-  if (inc.ref_type && inc.ref_id) {
-    if (decision === 'PROLONGER' && Number(jours) > 0) {
-      const n = Number(jours);
-      if (inc.ref_type === 'TUTORAT') {
-        const t = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(inc.ref_id);
-        if (t?.date_fin) {
-          const nf = addJours(t.date_fin, n);
-          db.prepare("UPDATE tutorat SET date_fin = ?, updated_at = datetime('now') WHERE id = ?").run(nf, t.id);
-          actions.push(`fin du tutorat prolongée de ${n} j (${t.date_fin} → ${nf})`);
-        }
-      } else if (inc.ref_type === 'SESSION_EXAMEN') {
-        const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(inc.ref_id);
-        if (s?.date_fin_prevue) {
-          const nf = addJours(s.date_fin_prevue, n);
-          db.prepare("UPDATE sessions_examen SET date_fin_prevue = ?, updated_at = datetime('now') WHERE id = ?").run(nf, s.id);
-          actions.push(`fin de l'évaluation prolongée de ${n} j (${s.date_fin_prevue} → ${nf})`);
-        }
-      }
-    } else if (decision === 'REPORTER' && nouvelle_date) {
-      if (inc.ref_type === 'TUTORAT') {
-        const t = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(inc.ref_id);
-        if (t?.date_debut) {
-          const delta = Math.round((Date.parse(nouvelle_date) - Date.parse(t.date_debut)) / 86400000);
-          const nf = t.date_fin ? addJours(t.date_fin, delta) : null;
-          db.prepare("UPDATE tutorat SET date_debut = ?, date_fin = COALESCE(?, date_fin), updated_at = datetime('now') WHERE id = ?")
-            .run(nouvelle_date, nf, t.id);
-          actions.push(`tutorat reporté au ${nouvelle_date} (décalage ${delta} j)`);
-        }
-      } else if (inc.ref_type === 'SESSION_EXAMEN') {
-        const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(inc.ref_id);
-        if (s?.date_demarrage) {
-          const delta = Math.round((Date.parse(nouvelle_date) - Date.parse(s.date_demarrage)) / 86400000);
-          const nf = s.date_fin_prevue ? addJours(s.date_fin_prevue, delta) : null;
-          db.prepare("UPDATE sessions_examen SET date_demarrage = ?, date_fin_prevue = COALESCE(?, date_fin_prevue), updated_at = datetime('now') WHERE id = ?")
-            .run(nouvelle_date, nf, s.id);
-          actions.push(`évaluation reportée au ${nouvelle_date} (décalage ${delta} j)`);
-        }
-      }
-    } else if (decision === 'ANNULER') {
-      if (inc.ref_type === 'SESSION_EXAMEN') {
-        db.prepare("UPDATE sessions_examen SET etat = 'ANNULE', updated_at = datetime('now') WHERE id = ?").run(inc.ref_id);
-        actions.push('évaluation liée ANNULÉE');
-      } else if (inc.ref_type === 'TUTORAT') {
+  // Cibles : cochées dans la boîte de dialogue, sinon l'élément lié à l'incident
+  const listeCibles = (Array.isArray(cibles) && cibles.length
+    ? cibles.filter(c => ['TUTORAT', 'SESSION_EXAMEN'].includes(c.type) && c.id)
+    : (inc.ref_type && inc.ref_id ? [{ type: inc.ref_type, id: inc.ref_id }] : []));
+
+  for (const cible of listeCibles) {
+    if (cible.type === 'TUTORAT') {
+      const t = db.prepare(`
+        SELECT t.*, f.code as fc, f.nom as fn, p.code as pc, pr.code as promo
+        FROM tutorat t LEFT JOIN formations f ON f.id = t.formation_id
+        LEFT JOIN poles p ON p.id = t.pole_id LEFT JOIN promotions pr ON pr.id = t.promotion_id
+        WHERE t.id = ?`).get(cible.id);
+      if (!t) continue;
+      const lbl = `tutorat ${[t.pc, t.fc || t.fn, t.promo, t.niveau].filter(Boolean).join(' ')}`;
+      if (decision === 'PROLONGER' && Number(jours) > 0 && t.date_fin) {
+        const nf = addJours(t.date_fin, Number(jours));
+        db.prepare("UPDATE tutorat SET date_fin = ?, updated_at = datetime('now') WHERE id = ?").run(nf, t.id);
+        actions.push(`${lbl} : fin prolongée de ${Number(jours)} j (${t.date_fin} → ${nf})`);
+      } else if (decision === 'REPORTER' && nouvelle_date && t.date_debut) {
+        const delta = Math.round((Date.parse(nouvelle_date) - Date.parse(t.date_debut)) / 86400000);
+        const nf = t.date_fin ? addJours(t.date_fin, delta) : null;
+        db.prepare("UPDATE tutorat SET date_debut = ?, date_fin = COALESCE(?, date_fin), updated_at = datetime('now') WHERE id = ?")
+          .run(nouvelle_date, nf, t.id);
+        actions.push(`${lbl} : reporté au ${nouvelle_date} (décalage ${delta} j)`);
+      } else if (decision === 'FIN_SEULE' && nouvelle_fin) {
+        db.prepare("UPDATE tutorat SET date_fin = ?, updated_at = datetime('now') WHERE id = ?").run(nouvelle_fin, t.id);
+        actions.push(`${lbl} : fin modifiée (${t.date_fin || '—'} → ${nouvelle_fin})`);
+      } else if (decision === 'ANNULER') {
         db.prepare("UPDATE tutorat SET observations = COALESCE(observations, '') || ' [ARRÊTÉ suite à incident #' || ? || ']', updated_at = datetime('now') WHERE id = ?")
-          .run(inc.id, inc.ref_id);
-        actions.push('arrêt du tutorat documenté dans la fiche');
-      }
-    } else if (decision === 'SUSPENDRE') {
-      if (inc.ref_type === 'SESSION_EXAMEN') {
-        db.prepare("UPDATE sessions_examen SET etat = 'SUSPENDU', updated_at = datetime('now') WHERE id = ?").run(inc.ref_id);
-        actions.push('évaluation liée SUSPENDUE');
-      } else if (inc.ref_type === 'TUTORAT') {
+          .run(inc.id, t.id);
+        actions.push(`${lbl} : arrêt documenté dans la fiche`);
+      } else if (decision === 'SUSPENDRE') {
         db.prepare("UPDATE tutorat SET observations = COALESCE(observations, '') || ' [SUSPENDU suite à incident #' || ? || ']', updated_at = datetime('now') WHERE id = ?")
-          .run(inc.id, inc.ref_id);
-        actions.push('suspension du tutorat documentée dans la fiche');
+          .run(inc.id, t.id);
+        actions.push(`${lbl} : suspension documentée dans la fiche`);
       }
-    } else if (decision === 'FIN_SEULE' && nouvelle_fin) {
-      if (inc.ref_type === 'TUTORAT') {
-        const t = db.prepare('SELECT * FROM tutorat WHERE id = ?').get(inc.ref_id);
-        if (t) {
-          db.prepare("UPDATE tutorat SET date_fin = ?, updated_at = datetime('now') WHERE id = ?").run(nouvelle_fin, t.id);
-          actions.push(`fin du tutorat modifiée (${t.date_fin || '—'} → ${nouvelle_fin})`);
-        }
-      } else if (inc.ref_type === 'SESSION_EXAMEN') {
-        const s = db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(inc.ref_id);
-        if (s) {
-          db.prepare("UPDATE sessions_examen SET date_fin_prevue = ?, updated_at = datetime('now') WHERE id = ?").run(nouvelle_fin, s.id);
-          actions.push(`fin de l'évaluation modifiée (${s.date_fin_prevue || '—'} → ${nouvelle_fin})`);
-        }
+    } else {
+      const s = db.prepare(`
+        SELECT se.*, f.code as fc, f.nom as fn, p.code as pc, pr.code as promo
+        FROM sessions_examen se LEFT JOIN formations f ON f.id = se.formation_id
+        LEFT JOIN poles p ON p.id = se.pole_id LEFT JOIN promotions pr ON pr.id = se.promotion_id
+        WHERE se.id = ?`).get(cible.id);
+      if (!s) continue;
+      const lbl = `évaluation ${[s.pc, s.fc || s.fn, s.promo, s.niveau, s.semestre_code].filter(Boolean).join(' ')}`;
+      if (decision === 'PROLONGER' && Number(jours) > 0 && s.date_fin_prevue) {
+        const nf = addJours(s.date_fin_prevue, Number(jours));
+        db.prepare("UPDATE sessions_examen SET date_fin_prevue = ?, updated_at = datetime('now') WHERE id = ?").run(nf, s.id);
+        actions.push(`${lbl} : fin prolongée de ${Number(jours)} j (${s.date_fin_prevue} → ${nf})`);
+      } else if (decision === 'REPORTER' && nouvelle_date && s.date_demarrage) {
+        const delta = Math.round((Date.parse(nouvelle_date) - Date.parse(s.date_demarrage)) / 86400000);
+        const nf = s.date_fin_prevue ? addJours(s.date_fin_prevue, delta) : null;
+        db.prepare("UPDATE sessions_examen SET date_demarrage = ?, date_fin_prevue = COALESCE(?, date_fin_prevue), updated_at = datetime('now') WHERE id = ?")
+          .run(nouvelle_date, nf, s.id);
+        actions.push(`${lbl} : reportée au ${nouvelle_date} (décalage ${delta} j)`);
+      } else if (decision === 'FIN_SEULE' && nouvelle_fin) {
+        db.prepare("UPDATE sessions_examen SET date_fin_prevue = ?, updated_at = datetime('now') WHERE id = ?").run(nouvelle_fin, s.id);
+        actions.push(`${lbl} : fin modifiée (${s.date_fin_prevue || '—'} → ${nouvelle_fin})`);
+      } else if (decision === 'ANNULER') {
+        db.prepare("UPDATE sessions_examen SET etat = 'ANNULE', updated_at = datetime('now') WHERE id = ?").run(s.id);
+        actions.push(`${lbl} : ANNULÉE`);
+      } else if (decision === 'SUSPENDRE') {
+        db.prepare("UPDATE sessions_examen SET etat = 'SUSPENDU', updated_at = datetime('now') WHERE id = ?").run(s.id);
+        actions.push(`${lbl} : SUSPENDUE`);
       }
     }
   }

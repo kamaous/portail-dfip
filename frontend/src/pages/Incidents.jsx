@@ -228,15 +228,29 @@ function ModalResolution({ incident, onClose, onDone }) {
   const [nouvelleFin, setNouvelleFin] = useState('');
   const [resolution, setResolution] = useState('');
   const [loading, setLoading] = useState(false);
-  const lie = incident.ref_type === 'TUTORAT' ? 'la fiche de tutorat liée'
-    : incident.ref_type === 'SESSION_EXAMEN' ? "l'évaluation liée" : null;
+
+  // Éléments impactés (évaluations / tutorats du périmètre de l'incident) :
+  // la décision leur est appliquée AUTOMATIQUEMENT — pré-cochés à l'ouverture
+  const [candidats, setCandidats] = useState({ evaluations: [], tutorats: [] });
+  const [selCibles, setSelCibles] = useState([]); // clés "TYPE|id"
+  const cleC = (c) => `${c.type}|${c.id}`;
+  useEffect(() => {
+    api.get(`/incidents/${incident.id}/cibles`).then(r => {
+      setCandidats(r.data);
+      const tous = [...r.data.evaluations, ...r.data.tutorats];
+      const lies = tous.filter(c => c.lie);
+      setSelCibles((lies.length ? lies : tous).map(cleC)); // lié → lui seul, sinon tout le périmètre
+    }).catch(() => {});
+  }, [incident.id]);
+  const nbSel = selCibles.length;
+  const cible = nbSel === 0 ? '' : nbSel === 1 ? " de l'élément sélectionné" : ` des ${nbSel} éléments sélectionnés`;
 
   const DECISIONS = [
-    ['PROLONGER', 'Prolonger / étendre les dates', `La date de fin ${lie ? `de ${lie}` : ''} est repoussée du nombre de jours indiqué (ex. +${dureeIncident} j si l'incident a duré ${dureeIncident} j).`],
-    ['REPORTER', 'Reporter', `La période ${lie ? `de ${lie}` : ''} est décalée à partir d'une nouvelle date de début — la durée initiale est conservée.`],
-    ['FIN_SEULE', 'Modifier uniquement la fin', `Seule la date de fin ${lie ? `de ${lie}` : ''} est remplacée par la nouvelle date indiquée.`],
-    ['SUSPENDRE', 'Suspendre', incident.ref_type === 'SESSION_EXAMEN' ? "L'évaluation liée passe à l'état SUSPENDUE (reprise possible plus tard)." : incident.ref_type === 'TUTORAT' ? 'La suspension du tutorat est documentée dans la fiche.' : 'La décision de suspension est documentée.'],
-    ['ANNULER', 'Annuler', incident.ref_type === 'SESSION_EXAMEN' ? "L'évaluation liée passe à l'état ANNULÉE." : incident.ref_type === 'TUTORAT' ? 'L\'arrêt du tutorat est documenté dans la fiche.' : 'La décision d\'annulation est documentée.'],
+    ['PROLONGER', 'Prolonger / étendre les dates', `La date de fin${cible} est repoussée du nombre de jours indiqué (ex. +${dureeIncident} j si l'incident a duré ${dureeIncident} j).`],
+    ['REPORTER', 'Reporter', `La période${cible} est décalée à partir d'une nouvelle date de début — la durée initiale est conservée.`],
+    ['FIN_SEULE', 'Modifier uniquement la fin', `Seule la date de fin${cible} est remplacée par la nouvelle date indiquée.`],
+    ['SUSPENDRE', 'Suspendre', `Les évaluations sélectionnées passent à l'état SUSPENDUE (reprise possible) ; la suspension des tutorats est documentée dans leurs fiches.`],
+    ['ANNULER', 'Annuler', `Les évaluations sélectionnées passent à l'état ANNULÉE ; l'arrêt des tutorats est documenté dans leurs fiches.`],
     ['INTACT', 'Garder les dates intactes', 'Aucune modification de dates — la décision et sa justification sont documentées.'],
   ];
 
@@ -247,6 +261,7 @@ function ModalResolution({ incident, onClose, onDone }) {
         decision, jours: decision === 'PROLONGER' ? Number(jours) : undefined,
         nouvelle_date: decision === 'REPORTER' ? nouvelleDate : undefined,
         nouvelle_fin: decision === 'FIN_SEULE' ? nouvelleFin : undefined,
+        cibles: selCibles.map(k => { const [type, id] = k.split('|'); return { type, id: Number(id) }; }),
         resolution: resolution.trim(),
       });
       toast.success(r.data?.message || 'Incident résolu', { duration: 6000 });
@@ -266,11 +281,32 @@ function ModalResolution({ incident, onClose, onDone }) {
           <div className="bg-slate-50 rounded-xl p-3 text-xs text-slate-600 space-y-1">
             <p><strong>Description :</strong> {incident.description}</p>
             <p><strong>Période de l'incident :</strong> {(incident.date_debut || incident.date_incident) || '—'}{incident.date_fin ? ` → ${incident.date_fin}` : ''} ({dureeIncident} jour(s))</p>
-            <p>
-              <strong>Élément lié :</strong>{' '}
-              {lie ? <span className="text-blue-700">🔗 {lie} — la décision s'y appliquera automatiquement</span>
-                : <span className="text-amber-700">aucun — la décision sera documentée sans modification automatique de dates</span>}
+          </div>
+
+          {/* Éléments impactés : la décision s'y applique AUTOMATIQUEMENT */}
+          <div>
+            <p className="text-sm font-semibold text-slate-700 mb-1">
+              Éléments impactés <span className="text-xs font-normal text-slate-400">({nbSel} sélectionné(s) — la décision s'y appliquera automatiquement)</span>
             </p>
+            {candidats.evaluations.length + candidats.tutorats.length === 0 ? (
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2.5">
+                Aucune évaluation ni fiche de tutorat ne chevauche la période de cet incident sur ce périmètre —
+                la décision sera documentée sans modification automatique de dates.
+              </p>
+            ) : (
+              <div className="border border-slate-200 rounded-xl max-h-44 overflow-y-auto nav-scroll divide-y divide-slate-50">
+                {[...candidats.evaluations, ...candidats.tutorats].map(c => (
+                  <label key={cleC(c)} className={`flex items-center gap-2 px-3 py-1.5 text-xs cursor-pointer hover:bg-slate-50 ${selCibles.includes(cleC(c)) ? 'bg-blue-50/70' : ''}`}>
+                    <input type="checkbox" checked={selCibles.includes(cleC(c))}
+                      onChange={() => setSelCibles(s => s.includes(cleC(c)) ? s.filter(x => x !== cleC(c)) : [...s, cleC(c)])}
+                      className="!w-3.5 !h-3.5 accent-[#1e3a5f] shrink-0" />
+                    <span>{c.type === 'TUTORAT' ? '📚' : '🧪'}</span>
+                    <span className="text-slate-700 truncate">{c.libelle}</span>
+                    {c.lie && <span className="badge bg-blue-100 text-blue-700 text-[10px] ml-auto shrink-0">🔗 lié</span>}
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
 
           <div className="space-y-2">
