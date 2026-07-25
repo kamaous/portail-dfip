@@ -826,19 +826,48 @@ function LigneSelect({ label, cfg, value, editable, onChange }) {
 }
 
 /* Export PDF du calendrier d'examens d'un cursus (formation × promotion × niveau ± semestre ± session) */
+/* Groupe de cases à cocher réutilisable du modal d'export (multi-sélection) */
+function GroupeCoches({ label, options, values, onToggle, cols = 3 }) {
+  const COLS = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' };
+  return (
+    <div>
+      <label className="text-sm font-medium text-slate-700 block mb-1">{label}</label>
+      <div className={`grid ${COLS[cols] || COLS[3]} gap-1.5 max-h-40 overflow-y-auto nav-scroll border border-slate-200 rounded-xl p-2`}>
+        {options.map(o => (
+          <label key={o.v} className={`flex items-center gap-1.5 text-xs px-1.5 py-1 rounded-lg cursor-pointer ${values.includes(o.v) ? 'bg-blue-50 text-blue-800 font-semibold' : 'text-slate-600 hover:bg-slate-50'}`}
+            title={o.t || undefined}>
+            <input type="checkbox" checked={values.includes(o.v)} onChange={() => onToggle(o.v)} className="accent-[#1e3a5f]" />
+            <span className="truncate">{o.l}</span>
+          </label>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function BoutonCalendrierPdf({ poles, promotions }) {
   const [open, setOpen] = useState(false);
-  const [f, setF] = useState({ formation_id: '', promotion_code: '', niveau: '', semestre: '', session: '' });
-  const formations = poles.flatMap(p => (p.formations || []).map(x => ({ ...x, pole_code: p.code })));
-  const semestres = f.niveau ? (NIVEAUX[f.niveau]?.semestres || []) : ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+  const [f, setF] = useState({ poles: [], formations: [], promotions: [], niveaux: [], semestres: [], sessions: [], debut: '', fin: '' });
+  const toggle = (champ) => (v) => setF(x => ({ ...x, [champ]: x[champ].includes(v) ? x[champ].filter(y => y !== v) : [...x[champ], v] }));
+
+  // Formations proposées : restreintes aux pôles cochés (toutes sinon)
+  const formations = poles
+    .filter(p => f.poles.length === 0 || f.poles.includes(String(p.id)))
+    .flatMap(p => (p.formations || []).map(x => ({ ...x, pole_code: p.code })));
+  const semestres = f.niveaux.length > 0
+    ? [...new Set(f.niveaux.flatMap(n => NIVEAUX[n]?.semestres || []))].sort()
+    : ['S1', 'S2', 'S3', 'S4', 'S5', 'S6'];
+
+  // Au moins un critère structurant : pôle(s), formation(s) ou période complète
+  const peutGenerer = f.poles.length > 0 || f.formations.length > 0 || (f.debut && f.fin);
 
   function generer() {
     const qs = new URLSearchParams();
-    qs.set('formation_id', f.formation_id);
-    if (f.promotion_code) qs.set('promotion_code', f.promotion_code);
-    if (f.niveau) qs.set('niveau', f.niveau);
-    if (f.semestre) qs.set('semestre', f.semestre);
-    if (f.session) qs.set('session', f.session);
+    for (const k of ['poles', 'formations', 'promotions', 'niveaux', 'semestres', 'sessions']) {
+      if (f[k].length > 0) qs.set(k, f[k].join(','));
+    }
+    if (f.debut) qs.set('debut', f.debut);
+    if (f.fin) qs.set('fin', f.fin);
     window.open(`/calendrier-examens?${qs}`, '_blank');
     setOpen(false);
   }
@@ -850,57 +879,65 @@ function BoutonCalendrierPdf({ poles, promotions }) {
       </button>
       {open && (
         <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
-            <div className="flex items-center justify-between p-5 border-b">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
+            <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
               <h2 className="font-semibold text-slate-800">📄 Calendrier d'examens — export PDF</h2>
               <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600">✕</button>
             </div>
             <div className="p-5 space-y-3">
               <p className="text-xs text-slate-500">
-                Exemple : formation <strong>SJ</strong> · promotion <strong>P13</strong> · <strong>Semestre 1</strong> · session <strong>Normale</strong>.
+                Combinez librement les critères — <strong>sélections multiples</strong> partout.
+                Au moins un <strong>pôle</strong>, une <strong>formation</strong> ou une <strong>période complète</strong> est requis.
               </p>
+
+              <GroupeCoches label="Pôle(s)" cols={3}
+                options={poles.map(p => ({ v: String(p.id), l: p.code, t: p.nom }))}
+                values={f.poles}
+                onToggle={(v) => setF(x => {
+                  const nv = x.poles.includes(v) ? x.poles.filter(y => y !== v) : [...x.poles, v];
+                  // Retirer les formations qui ne sont plus dans les pôles cochés
+                  const ok = new Set(poles.filter(p => nv.length === 0 || nv.includes(String(p.id)))
+                    .flatMap(p => (p.formations || []).map(fo => String(fo.id))));
+                  return { ...x, poles: nv, formations: x.formations.filter(id => ok.has(id)) };
+                })} />
+
+              <GroupeCoches label="Formation(s) — toutes celles des pôles cochés si aucune" cols={2}
+                options={formations.map(fo => ({ v: String(fo.id), l: `${fo.pole_code} — ${fo.code || fo.nom}`, t: fo.nom }))}
+                values={f.formations} onToggle={toggle('formations')} />
+
               <div>
-                <label className="text-sm font-medium text-slate-700 block mb-1">Formation *</label>
-                <select value={f.formation_id} onChange={e => setF(x => ({ ...x, formation_id: e.target.value }))}>
-                  <option value="">Choisir...</option>
-                  {formations.map(fo => <option key={fo.id} value={fo.id}>{fo.pole_code} — {fo.code ? `${fo.code} · ` : ''}{fo.nom}</option>)}
-                </select>
+                <label className="text-sm font-medium text-slate-700 block mb-1">Période (intervalle de dates) — optionnelle</label>
+                <PlageDates debut={f.debut} fin={f.fin} compact
+                  onChange={({ debut, fin }) => setF(x => ({ ...x, debut, fin }))} />
+                <p className="text-[11px] text-slate-400 mt-1">Seules les évaluations chevauchant cette période figureront dans le calendrier.</p>
               </div>
+
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-1">Promotion</label>
-                  <select value={f.promotion_code} onChange={e => setF(x => ({ ...x, promotion_code: e.target.value }))}>
-                    <option value="">Toutes</option>
-                    {promotions.map(p => <option key={p.id} value={p.code}>{p.code}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-1">Niveau</label>
-                  <select value={f.niveau} onChange={e => setF(x => ({ ...x, niveau: e.target.value, semestre: '' }))}>
-                    <option value="">Tous</option>
-                    {Object.entries(NIVEAUX).map(([k, n]) => <option key={k} value={k}>{n.label}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-1">Semestre</label>
-                  <select value={f.semestre} onChange={e => setF(x => ({ ...x, semestre: e.target.value }))}>
-                    <option value="">Tous</option>
-                    {semestres.map(s => <option key={s} value={s}>Semestre {s.replace('S', '')}</option>)}
-                  </select>
-                </div>
-                <div>
-                  <label className="text-sm font-medium text-slate-700 block mb-1">Session</label>
-                  <select value={f.session} onChange={e => setF(x => ({ ...x, session: e.target.value }))}>
-                    <option value="">Toutes</option>
-                    <option value="1">Normale (SN)</option>
-                    <option value="2">Rattrapage (SR)</option>
-                    <option value="3">Spéciale (SS)</option>
-                  </select>
-                </div>
+                <GroupeCoches label="Promotion(s)" cols={2}
+                  options={promotions.map(p => ({ v: p.code, l: p.code }))}
+                  values={f.promotions} onToggle={toggle('promotions')} />
+                <GroupeCoches label="Niveau(x)" cols={2}
+                  options={Object.entries(NIVEAUX).map(([k, n]) => ({ v: k, l: k, t: n.label }))}
+                  values={f.niveaux}
+                  onToggle={(v) => setF(x => {
+                    const nv = x.niveaux.includes(v) ? x.niveaux.filter(y => y !== v) : [...x.niveaux, v];
+                    const ok = new Set(nv.length > 0 ? nv.flatMap(n => NIVEAUX[n]?.semestres || []) : ['S1', 'S2', 'S3', 'S4', 'S5', 'S6']);
+                    return { ...x, niveaux: nv, semestres: x.semestres.filter(s => ok.has(s)) };
+                  })} />
+                <GroupeCoches label="Semestre(s)" cols={2}
+                  options={semestres.map(s => ({ v: s, l: `S${s.replace('S', '')}` }))}
+                  values={f.semestres} onToggle={toggle('semestres')} />
+                <GroupeCoches label="Session(s)" cols={1}
+                  options={[{ v: '1', l: 'Normale (SN)' }, { v: '2', l: 'Rattrapage (SR)' }, { v: '3', l: 'Spéciale (SS)' }]}
+                  values={f.sessions} onToggle={toggle('sessions')} />
               </div>
+
               <div className="flex gap-2 pt-1">
                 <button onClick={() => setOpen(false)} className="btn-secondary flex-1">Annuler</button>
-                <button onClick={generer} disabled={!f.formation_id} className="btn-primary flex-1 disabled:opacity-40">Générer le calendrier</button>
+                <button onClick={generer} disabled={!peutGenerer} className="btn-primary flex-1 disabled:opacity-40"
+                  title={peutGenerer ? undefined : 'Cochez au moins un pôle, une formation ou une période complète'}>
+                  Générer le calendrier
+                </button>
               </div>
             </div>
           </div>

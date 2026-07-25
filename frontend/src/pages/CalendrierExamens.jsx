@@ -5,13 +5,17 @@ import { useAuth } from '../context/AuthContext';
 import { NIVEAUX } from './Tutorat';
 import { SESSION_CODE } from './Evaluations';
 
-/* CALENDRIER D'EXAMENS imprimable (→ PDF) pour UN cursus :
-   formation × promotion × niveau (± semestre, ± session).
+/* CALENDRIER D'EXAMENS imprimable (→ PDF).
+   Critères combinables, tous MULTI-SÉLECTION : pôles, formations, promotions,
+   niveaux, semestres, sessions + période (intervalle de dates).
+   Paramètres multi = listes séparées par des virgules (poles, formations, promotions,
+   niveaux, semestres, sessions, debut, fin) ; les anciens paramètres unitaires
+   (formation_id, promotion_code, niveau, semestre, session) restent acceptés.
    Ouvert depuis « 📄 Calendrier PDF » du module Évaluations. */
 
 const SESSION_LBL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Session Spéciale' };
-const JOURS = ['Dimanche', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi'];
 const fmtDate = (s) => s ? new Date(`${s}T00:00:00`).toLocaleDateString('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }) : '—';
+const fmtCourt = (s) => s ? new Date(`${s}T00:00:00`).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }) : '—';
 
 function statut(e) {
   if (e.etat === 'SUSPENDU') return 'Suspendue';
@@ -25,11 +29,18 @@ function statut(e) {
 export default function CalendrierExamens() {
   const { user } = useAuth();
   const [params] = useSearchParams();
-  const formationId = Number(params.get('formation_id'));
-  const promo = params.get('promotion_code') || '';
-  const niveau = params.get('niveau') || '';
-  const semestre = params.get('semestre') || '';
-  const session = params.get('session') || '';
+  const getList = (k) => (params.get(k) || '').split(',').filter(Boolean);
+  // Critères multi + compatibilité avec les anciens paramètres unitaires
+  const polesSel = getList('poles').map(Number);
+  const formationsSel = [...getList('formations').map(Number),
+    ...(params.get('formation_id') ? [Number(params.get('formation_id'))] : [])];
+  const promosSel = [...getList('promotions'), ...(params.get('promotion_code') ? [params.get('promotion_code')] : [])];
+  const niveauxSel = [...getList('niveaux'), ...(params.get('niveau') ? [params.get('niveau')] : [])];
+  const semestresSel = [...getList('semestres'), ...(params.get('semestre') ? [params.get('semestre')] : [])];
+  const sessionsSel = [...getList('sessions'), ...(params.get('session') ? [params.get('session')] : [])];
+  const debut = params.get('debut') || '';
+  const fin = params.get('fin') || '';
+
   const [evals, setEvals] = useState([]);
   const [poles, setPoles] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -40,19 +51,42 @@ export default function CalendrierExamens() {
       .finally(() => setLoading(false));
   }, []);
 
-  const formation = useMemo(() =>
-    poles.flatMap(p => (p.formations || []).map(f => ({ ...f, pole_code: p.code, pole_nom: p.nom })))
-      .find(f => f.id === formationId), [poles, formationId]);
+  const formations = useMemo(() =>
+    poles.flatMap(p => (p.formations || []).map(f => ({ ...f, pole_id: p.id, pole_code: p.code, pole_nom: p.nom }))),
+    [poles]);
 
   const selection = useMemo(() => evals
-    .filter(e => e.formation_id === formationId
-      && (!promo || e.promotion_code === promo)
-      && (!niveau || e.niveau === niveau)
-      && (!semestre || e.semestre_code === semestre)
-      && (!session || String(e.session_num) === session)
+    .filter(e => (polesSel.length === 0 || polesSel.includes(e.pole_id))
+      && (formationsSel.length === 0 || formationsSel.includes(e.formation_id))
+      && (promosSel.length === 0 || promosSel.includes(e.promotion_code))
+      && (niveauxSel.length === 0 || niveauxSel.includes(e.niveau))
+      && (semestresSel.length === 0 || semestresSel.includes(e.semestre_code))
+      && (sessionsSel.length === 0 || sessionsSel.includes(String(e.session_num)))
+      // Période : évaluations CHEVAUCHANT l'intervalle (sans dates = exclues si période demandée)
+      && (!(debut || fin) || (e.date_demarrage
+        && (!fin || e.date_demarrage <= fin)
+        && (!debut || (e.date_fin_prevue || e.date_demarrage) >= debut)))
       && e.etat !== 'ANNULE')
     .sort((a, b) => (a.date_demarrage || '9999').localeCompare(b.date_demarrage || '9999')),
-    [evals, formationId, promo, niveau, semestre, session]);
+    [evals, params]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Groupement par formation (sections du document), trié pôle puis formation
+  const groupes = useMemo(() => {
+    const m = new Map();
+    for (const e of selection) {
+      const k = e.formation_id || 0;
+      if (!m.has(k)) {
+        const fo = formations.find(f => f.id === e.formation_id);
+        m.set(k, {
+          nom: fo ? `${fo.nom}${fo.code ? ` (${fo.code})` : ''}` : (e.formation_nom || 'Formation —'),
+          pole: fo?.pole_nom || e.pole_nom || '', pole_code: fo?.pole_code || e.pole_code || '',
+          evals: [],
+        });
+      }
+      m.get(k).evals.push(e);
+    }
+    return [...m.values()].sort((a, b) => (a.pole_code + a.nom).localeCompare(b.pole_code + b.nom));
+  }, [selection, formations]);
 
   useEffect(() => {
     if (!loading) { const t = setTimeout(() => window.print(), 900); return () => clearTimeout(t); }
@@ -64,13 +98,17 @@ export default function CalendrierExamens() {
     </div>
   );
 
+  const nomsPoles = polesSel.map(id => poles.find(p => p.id === id)?.code || id);
   const sousTitre = [
-    formation ? `${formation.nom}${formation.code ? ` (${formation.code})` : ''}` : `Formation #${formationId}`,
-    promo && `Promotion ${promo}`,
-    niveau && (NIVEAUX[niveau]?.label || niveau),
-    semestre && `Semestre ${semestre.replace('S', '')}`,
-    session && SESSION_LBL[session],
-  ].filter(Boolean).join(' · ');
+    nomsPoles.length > 0 && `Pôle${nomsPoles.length > 1 ? 's' : ''} ${nomsPoles.join(', ')}`,
+    formationsSel.length > 0 && (formationsSel.length === 1
+      ? (formations.find(f => f.id === formationsSel[0])?.nom || `Formation #${formationsSel[0]}`)
+      : `${formationsSel.length} formations sélectionnées`),
+    promosSel.length > 0 && `Promotion${promosSel.length > 1 ? 's' : ''} ${promosSel.join(', ')}`,
+    niveauxSel.length > 0 && niveauxSel.map(n => NIVEAUX[n]?.label || n).join(', '),
+    semestresSel.length > 0 && `Semestre${semestresSel.length > 1 ? 's' : ''} ${semestresSel.map(s => s.replace('S', '')).join(', ')}`,
+    sessionsSel.length > 0 && sessionsSel.map(s => SESSION_LBL[s]).join(', '),
+  ].filter(Boolean).join(' · ') || 'Toutes les évaluations';
 
   return (
     <div className="bg-white min-h-screen text-slate-800 p-8 max-w-3xl mx-auto text-sm">
@@ -91,37 +129,51 @@ export default function CalendrierExamens() {
         </div>
       </div>
       <p className="text-base font-bold text-slate-800 mb-1">{sousTitre}</p>
-      {formation && <p className="text-xs text-slate-500 mb-5">{formation.pole_nom}</p>}
+      {(debut || fin) && (
+        <p className="text-xs font-semibold text-[#1e3a5f] mb-1">
+          📆 Période : {debut ? `du ${fmtCourt(debut)}` : ''}{fin ? ` au ${fmtCourt(fin)}` : ' et au-delà'}
+        </p>
+      )}
+      <p className="text-xs text-slate-500 mb-5">{selection.length} évaluation{selection.length > 1 ? 's' : ''} · {groupes.length} formation{groupes.length > 1 ? 's' : ''}</p>
 
       {selection.length === 0 ? (
-        <p className="text-slate-400 italic py-8">Aucune évaluation programmée pour ce cursus avec ces critères.</p>
-      ) : (
-        <>
+        <p className="text-slate-400 italic py-8">Aucune évaluation programmée avec ces critères.</p>
+      ) : groupes.map((g, gi) => (
+        <div key={gi} className="mb-8 break-inside-avoid-page">
+          {/* Section par formation */}
+          <div className="bg-slate-100 border-l-4 border-[#1e3a5f] rounded-r-lg px-3 py-2 mb-3">
+            <p className="font-bold text-[#1e3a5f]">{g.nom}</p>
+            <p className="text-[11px] text-slate-500">{g.pole}</p>
+          </div>
+
           {/* Tableau récapitulatif */}
-          <table className="w-full text-xs mb-6">
+          <table className="w-full text-xs mb-4">
             <thead><tr className="bg-[#1e3a5f] text-white text-left">
-              {['Type', 'Session', 'Semestre', 'Du', 'Au', 'Horaire quotidien', 'Statut'].map(h => <th key={h} className="px-2.5 py-2 font-bold">{h}</th>)}
+              {['Type', 'Session', 'Promotion', 'Niveau', 'Semestre', 'Du', 'Au', 'Horaire quotidien', 'Statut'].map(h => <th key={h} className="px-2 py-2 font-bold">{h}</th>)}
             </tr></thead>
             <tbody>
-              {selection.map(e => (
+              {g.evals.map(e => (
                 <tr key={e.id} className="border-b border-slate-200">
-                  <td className="px-2.5 py-2 font-semibold">{e.type_evaluation === 'DEVOIR' ? 'Devoir' : 'Examen'}</td>
-                  <td className="px-2.5 py-2">{SESSION_CODE[e.session_num]} — {SESSION_LBL[e.session_num]}</td>
-                  <td className="px-2.5 py-2">{e.semestre_code || '—'}</td>
-                  <td className="px-2.5 py-2 whitespace-nowrap">{e.date_demarrage || '—'}</td>
-                  <td className="px-2.5 py-2 whitespace-nowrap">{e.date_fin_prevue || '—'}</td>
-                  <td className="px-2.5 py-2 whitespace-nowrap">{e.heure_debut ? `${e.heure_debut} – ${e.heure_fin || '—'}` : 'Journée entière'}</td>
-                  <td className="px-2.5 py-2">{statut(e)}</td>
+                  <td className="px-2 py-2 font-semibold">{e.type_evaluation === 'DEVOIR' ? 'Devoir' : 'Examen'}</td>
+                  <td className="px-2 py-2">{SESSION_CODE[e.session_num]}</td>
+                  <td className="px-2 py-2">{e.promotion_code || '—'}</td>
+                  <td className="px-2 py-2">{e.niveau || '—'}</td>
+                  <td className="px-2 py-2">{e.semestre_code || '—'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{e.date_demarrage || '—'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{e.date_fin_prevue || '—'}</td>
+                  <td className="px-2 py-2 whitespace-nowrap">{e.heure_debut ? `${e.heure_debut} – ${e.heure_fin || '—'}` : 'Journée entière'}</td>
+                  <td className="px-2 py-2">{statut(e)}</td>
                 </tr>
               ))}
             </tbody>
           </table>
 
           {/* Détail par évaluation */}
-          {selection.map(e => (
-            <div key={e.id} className="border border-slate-200 rounded-xl p-4 mb-4 break-inside-avoid">
+          {g.evals.map(e => (
+            <div key={e.id} className="border border-slate-200 rounded-xl p-4 mb-3 break-inside-avoid">
               <p className="font-bold text-[#1e3a5f]">
                 {e.type_evaluation === 'DEVOIR' ? '📝 Devoir' : '🧪 Examen'} — {SESSION_LBL[e.session_num]}
+                {e.promotion_code ? ` · ${e.promotion_code}` : ''}{e.niveau ? ` · ${e.niveau}` : ''}
                 {e.semestre_code ? ` · Semestre ${e.semestre_code.replace('S', '')}` : ''}
               </p>
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2 text-xs">
@@ -135,8 +187,8 @@ export default function CalendrierExamens() {
               </div>
             </div>
           ))}
-        </>
-      )}
+        </div>
+      ))}
 
       <p className="text-[10px] text-slate-400 text-center border-t border-slate-200 pt-3 mt-8">
         Portail DFIP — UnCHK · Document généré le {new Date().toLocaleDateString('fr-FR')} par {user?.prenom} {user?.nom} · Sous réserve de modifications publiées sur le portail
