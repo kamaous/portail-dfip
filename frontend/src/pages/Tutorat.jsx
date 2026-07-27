@@ -879,8 +879,11 @@ export default function Tutorat() {
                 label: `📚 ${p.libelle} · ${p.ligne} (${p.pole_code})`,
                 titre: `Planning annuel : ${p.libelle} (${p.ligne}) · ${p.date_debut} → ${p.date_fin}`,
               })),
-              // Fiches de suivi : bandes pleines avec le nom de la formation
+              // Fiches de suivi : bandes pleines avec le nom de la formation.
+              // Les fiches LIÉES au planning (activite_id) sont déjà représentées
+              // par la bande pointillée de leur plage : pas de double affichage.
               ...tutoratsAffiches
+                .filter(t => !t.activite_id)
                 .filter(t => (t.date_debut || t.date_demarree_le) && (t.date_fin || t.date_terminee_le))
                 .map(t => {
                   const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;

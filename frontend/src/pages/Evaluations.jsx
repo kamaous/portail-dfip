@@ -491,8 +491,10 @@ export default function Evaluations() {
                 label: `${p.sous_type === 'DEVOIRS' ? '📝' : '🧪'} ${p.libelle} · ${p.ligne} (${p.pole_code})`,
                 titre: `Planning annuel : ${p.libelle} (${p.ligne}) · ${p.sous_type === 'DEVOIRS' ? 'Devoirs' : 'Examen'} · ${p.date_debut} → ${p.date_fin}`,
               })),
-              // Évaluations saisies : bandes pleines avec le nom de la formation
-              ...affiches.filter(s => s.date_demarrage).map(s => {
+              // Évaluations saisies : bandes pleines avec le nom de la formation.
+              // Les évaluations LIÉES au planning (activite_id) sont déjà représentées
+              // par la bande pointillée de leur plage : pas de double affichage.
+              ...affiches.filter(s => !s.activite_id && s.date_demarrage).map(s => {
                 const seg = POLES_SEG[s.pole_code] || POLES_SEG.STN;
                 const fin = s.date_fin_prevue || s.date_demarrage;
                 // Format : Promotion - Formation Niveau Semestre Session (ex : P10 - ANG L3 S5 SN)
