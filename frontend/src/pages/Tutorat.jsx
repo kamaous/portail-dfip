@@ -300,7 +300,7 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
 }
 
 function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, onCreated }) {
-  const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE'; // pôle verrouillé + fiche soumise à validation
+  const estRF = user?.role === 'RESPONSABLE_FORMATION'; // pôle verrouillé + fiche soumise à validation
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
@@ -666,7 +666,7 @@ export default function Tutorat() {
       load();
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
-  const estCreateurFiche = (t) => user?.role === 'RESPONSABLE_PEDAGOGIQUE' && user?.id === t.created_by;
+  const estCreateurFiche = (t) => user?.role === 'RESPONSABLE_FORMATION' && user?.id === t.created_by;
 
   // Suppression / modification : Chefs de division (Technopédagogie + DFE), Directeur DFIP, Admin
   const canDelete = ['CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
@@ -674,7 +674,8 @@ export default function Tutorat() {
   // La VALIDATION des fiches soumises reste au Chef de division Technopédagogie
   const canValider = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Création des fiches : Responsable pédagogique du pôle (les RF consultent et signalent)
-  const canCreate = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  // Création : Responsable de FORMATION (le Responsable pédagogique délibère, il ne crée pas)
+  const canCreate = ['RESPONSABLE_FORMATION', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   const peutSignaler = user?.role === 'RESPONSABLE_FORMATION';
   const canSetDemarrage = ['DIRECTEUR', 'CHEF_DIV_TECHNOPEDAGOGIE', 'ADMIN_PORTAIL'].includes(user?.role);
   const anneeActive = annees.find(a => a.active);

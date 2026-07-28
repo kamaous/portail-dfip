@@ -86,8 +86,10 @@ export default function Resume() {
       api.get('/tutorat'), api.get('/evaluations'), api.get('/poles'),
       api.get('/incidents').catch(() => ({ data: [] })),
     ]).then(([t, e, p, i]) => {
-      setTutorats(t.data.filter(x => x.statut_fiche !== 'REJETEE'));
-      setEvals(e.data);
+      // Le Résumé ne suit que les FICHES DE FORMATIONS : les entrées de niveau
+      // pôle (issues du planning annuel, sans formation) n'y figurent pas.
+      setTutorats(t.data.filter(x => x.statut_fiche !== 'REJETEE' && x.formation_id));
+      setEvals(e.data.filter(x => x.formation_id));
       setPoles(p.data);
       setIncidents(i.data);
     }).finally(() => setLoading(false));

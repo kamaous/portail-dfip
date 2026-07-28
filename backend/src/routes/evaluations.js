@@ -11,10 +11,16 @@ const SESSION_LABEL = { 1: 'Session Normale', 2: 'Session de Rattrapage', 3: 'Se
 
 // Suivi (réception, implémentation, état, date prévue) : Chef de division DFE
 const SUIVI_ROLES = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'];
-// Création + dates : Responsable pédagogique du pôle (les Responsables de formation
-// consultent et signalent), complétés par le Chef DFE
-const CREATE_ROLES = ['RESPONSABLE_PEDAGOGIQUE', ...SUIVI_ROLES];
-// Délibérations : Directeurs de pôle (leur pôle) + Directeur/Admin
+// Création + dates : RESPONSABLE DE FORMATION (son pôle), complétés par le Chef DFE.
+// Le Responsable pédagogique ne crée PAS : son rôle est la DÉLIBÉRATION.
+// Contrôle sur le rôle RÉEL (req.user.role) pour ne pas laisser passer l'héritage RP → RF.
+const CREATE_ROLES = ['RESPONSABLE_FORMATION', ...SUIVI_ROLES];
+function creationAutorisee(req, res, next) {
+  if (!CREATE_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: 'La création des évaluations est réservée aux Responsables de formation.' });
+  }
+  next();
+}
 // Délibérations : réservées aux Responsables pédagogiques des pôles
 const DELIB_ROLES = ['RESPONSABLE_PEDAGOGIQUE'];
 
@@ -170,7 +176,7 @@ router.post('/check-conflit', auth, (req, res) => {
 });
 
 /* ===== Création (Responsables de formation, dans les plages du planning) ===== */
-router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
+router.post('/', auth, creationAutorisee, (req, res) => {
   const { annee_id, pole_id, promotion_id, formation_id, niveau, semestre_code, session_num,
           type_evaluation, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe, epreuves } = req.body;
   if (!annee_id || !pole_id || !formation_id) {
@@ -188,8 +194,8 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
 
   const db = getDb();
 
-  // Le Responsable pédagogique ne crée que pour SON pôle
-  if (req.user.role === 'RESPONSABLE_PEDAGOGIQUE' && req.user.pole_id !== parseInt(pole_id)) {
+  // Le Responsable de formation ne crée que pour SON pôle
+  if (req.user.role === 'RESPONSABLE_FORMATION' && req.user.pole_id !== parseInt(pole_id)) {
     return res.status(403).json({ error: 'Vous ne pouvez renseigner que les évaluations de votre pôle.' });
   }
 
@@ -252,8 +258,8 @@ router.put('/:id', auth, (req, res) => {
   catch { return res.status(400).json({ error: 'Format des épreuves invalide' }); }
 
   const estSuivi = SUIVI_ROLES.includes(req.user.role);
-  // Dates : Responsable pédagogique du pôle (les RF signalent, ils ne modifient pas)
-  const estRF = req.user.role === 'RESPONSABLE_PEDAGOGIQUE' && req.user.pole_id === prev.pole_id;
+  // Dates : Responsable de formation du pôle (le Responsable pédagogique délibère, il ne crée pas)
+  const estRF = req.user.role === 'RESPONSABLE_FORMATION' && req.user.pole_id === prev.pole_id;
   const estDP = hasRole(req.user, 'RESPONSABLE_POLE') && req.user.pole_id === prev.pole_id;
   const estDirection = ['DIRECTEUR', 'ADMIN_PORTAIL'].includes(req.user.role);
 

@@ -7,9 +7,16 @@ const { ROLES_RESTREINTS } = require('../config');
 
 const router = express.Router();
 
-// Création des fiches : Responsable pédagogique du pôle, validée par le Chef div. Technopédagogie.
-// (Les Responsables de formation consultent et signalent les non-conformités.)
-const CREATE_ROLES = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
+// Création des fiches : RESPONSABLE DE FORMATION (son pôle), validée par le Chef div. Technopédagogie.
+// Le Responsable pédagogique ne crée PAS (il délibère côté évaluations) — contrôle sur le rôle
+// RÉEL (req.user.role), pour ne pas laisser passer l'héritage RP → RF.
+const CREATE_ROLES = ['RESPONSABLE_FORMATION', 'CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
+function creationAutorisee(req, res, next) {
+  if (!CREATE_ROLES.includes(req.user.role)) {
+    return res.status(403).json({ error: 'La création des fiches de tutorat est réservée aux Responsables de formation.' });
+  }
+  next();
+}
 // Section « PLATEFORMES ET TUTORATS » (indicateurs + état) : Chef div. Technopédagogie
 const INDIC_ROLES = ['CHEF_DIV_TECHNOPEDAGOGIE', 'DIRECTEUR', 'ADMIN_PORTAIL'];
 // Modification des fiches : le Chef division DFE (évaluations) a aussi la main
@@ -131,7 +138,7 @@ const FIELDS = ['plateforme_cours', 'cours', 'enrolement_tuteurs', 'enrolement_e
   'date_demarree_le', 'date_terminee_le', 'observations'];
 
 // POST /api/tutorat — création par un Responsable de formation (→ SOUMISE au Chef div. Technopédagogie)
-router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
+router.post('/', auth, creationAutorisee, (req, res) => {
   const b = req.body;
   if (!b.annee_id) return res.status(400).json({ error: 'annee_id requis' });
   if (!b.pole_id || !b.promotion_id || !b.formation_id || !b.niveau || !b.semestre_code) {
@@ -142,9 +149,9 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
   }
   const db = getDb();
 
-  // Le Responsable pédagogique ne crée que pour SON pôle
-  const estRPCreation = req.user.role === 'RESPONSABLE_PEDAGOGIQUE';
-  if (estRPCreation && req.user.pole_id !== parseInt(b.pole_id)) {
+  // Le Responsable de formation ne crée que pour SON pôle
+  const estRFCreation = req.user.role === 'RESPONSABLE_FORMATION';
+  if (estRFCreation && req.user.pole_id !== parseInt(b.pole_id)) {
     return res.status(403).json({ error: 'Vous ne pouvez créer des fiches que pour votre pôle.' });
   }
 
@@ -156,7 +163,7 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
   if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
 
   // Soumise si créée par un responsable de formation, validée d'office sinon
-  const soumise = estRPCreation;
+  const soumise = estRFCreation;
   const statut_fiche = soumise ? 'SOUMISE' : 'VALIDEE';
 
   const r = db.prepare(`

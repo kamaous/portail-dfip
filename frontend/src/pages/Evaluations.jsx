@@ -52,7 +52,7 @@ const ETAT_BAR = { CALENDRIER_DISPONIBLE: null, EVAL_EN_COURS: '#f59e0b', EVAL_T
 
 /* ===== Modal de création (Responsable de formation, dates dans les plages du planning) ===== */
 function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose, onCreated, onConflit }) {
-  const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE'; // pôle verrouillé pour le Responsable pédagogique
+  const estRF = user?.role === 'RESPONSABLE_FORMATION'; // pôle verrouillé pour le Responsable de formation
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
@@ -325,8 +325,9 @@ export default function Evaluations() {
   // Suivi : Chef de division DFE
   const canSuivi = ['CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
   // Création + dates : Responsable pédagogique du pôle (les RF consultent et signalent)
-  const canCreate = ['RESPONSABLE_PEDAGOGIQUE', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
-  const estRF = user?.role === 'RESPONSABLE_PEDAGOGIQUE';
+  // Création : Responsable de FORMATION (le Responsable pédagogique délibère, il ne crée pas)
+  const canCreate = ['RESPONSABLE_FORMATION', 'CHEF_DIV_EVALUATION', 'DIRECTEUR', 'ADMIN_PORTAIL'].includes(user?.role);
+  const estRF = user?.role === 'RESPONSABLE_FORMATION';
   const peutSignaler = user?.role === 'RESPONSABLE_FORMATION';
   // Délibérations : SEULS les Responsables pédagogiques des pôles
   const canDelib = user?.role === 'RESPONSABLE_PEDAGOGIQUE';
