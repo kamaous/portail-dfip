@@ -150,7 +150,12 @@ export default function Statistiques() {
       {onglet === 'SYNTHESE' && <Synthese effectifs={effectifs} enos={enos} />}
       {onglet === 'EFFECTIFS' && <Effectifs enos={enos} estGestion={estSaisie} />}
       {onglet === 'ENO' && <GestionEno enos={enos} estGestion={estGestion} estCharge={estCharge} monEno={user?.eno_id} onChange={load} />}
-      {onglet === 'SIMULATEUR' && <Simulateur cursus={cursus} />}
+      {onglet === 'SIMULATEUR' && (
+        <>
+          <Simulateur cursus={cursus} />
+          <ConcepteurCalendrier cursus={cursus} poles={poles} />
+        </>
+      )}
     </div>
   );
 }
@@ -730,6 +735,221 @@ function Simulateur({ cursus }) {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+/* ===== CONCEPTEUR DE CALENDRIER D'EXAMENS =====
+   Compose un calendrier FINI (comme les calendriers officiels PDF de la DFIP) :
+   cursus + session + groupe éventuel + liste des jours/créneaux avec leurs
+   matières (EC), chaque créneau étant vérifié contre la capacité des ENO.
+   La création génère l'évaluation (avec ses épreuves) puis ouvre le PDF. */
+const SEMS_PAR_NIVEAU = { L1: ['S1', 'S2'], M1: ['S1', 'S2'], L2: ['S3', 'S4'], L3: ['S5', 'S6'], M2: ['S3', 'S4'] };
+
+function ConcepteurCalendrier({ cursus, poles }) {
+  const [promos, setPromos] = useState([]);
+  const [annee, setAnnee] = useState(null);
+  const [sel, setSel] = useState({ promotion_code: '', niveau: '', formation_id: '', semestre_code: '', session_num: 1, groupe: '' });
+  const [lignes, setLignes] = useState([{ date: '', heure_debut: '08:30', heure_fin: '13:00', matieres: '', statut: null }]);
+  const [groupesRequis, setGroupesRequis] = useState([]);
+  const [verif, setVerif] = useState(false);
+  const [creation, setCreation] = useState(false);
+
+  useEffect(() => {
+    api.get('/poles/promotions').then(r => setPromos(r.data)).catch(() => {});
+    api.get('/dashboard/annees').then(r => setAnnee(r.data.find(a => a.active) || r.data[0])).catch(() => {});
+  }, []);
+
+  const promosDispo = useMemo(() => [...new Set(cursus.map(c => c.promotion_code))].sort().reverse(), [cursus]);
+  const niveauxDispo = useMemo(() => NIVEAUX_L.filter(n => cursus.some(c => c.promotion_code === sel.promotion_code && c.niveau === n)), [cursus, sel.promotion_code]);
+  const formationsDispo = useMemo(() => cursus
+    .filter(c => c.promotion_code === sel.promotion_code && c.niveau === sel.niveau)
+    .sort((a, b) => (a.pole_code + a.formation_code).localeCompare(b.pole_code + b.formation_code)), [cursus, sel.promotion_code, sel.niveau]);
+  const cursusSel = formationsDispo.find(c => String(c.formation_id) === String(sel.formation_id));
+  const semestres = sel.niveau ? (SEMS_PAR_NIVEAU[sel.niveau] || []) : [];
+
+  // Détection automatique des groupes nécessaires pour ce cursus
+  useEffect(() => {
+    setGroupesRequis([]);
+    if (!sel.formation_id || !sel.promotion_code || !sel.niveau) return;
+    const promo = promos.find(p => p.code === sel.promotion_code);
+    if (!promo) return;
+    api.post('/evaluations/check-conflit', { formation_id: sel.formation_id, promotion_id: promo.id, niveau: sel.niveau })
+      .then(r => setGroupesRequis(r.data.groupes_requis || [])).catch(() => {});
+  }, [sel.formation_id, sel.promotion_code, sel.niveau, promos]);
+
+  const majLigne = (i, patch) => setLignes(ls => ls.map((l, j) => j === i ? { ...l, ...patch, statut: null } : l));
+
+  async function verifier() {
+    const promo = promos.find(p => p.code === sel.promotion_code);
+    if (!promo || !sel.formation_id) return toast.error('Choisissez le cursus (promotion, niveau, formation)');
+    setVerif(true);
+    const maj = [...lignes];
+    for (let i = 0; i < maj.length; i++) {
+      const l = maj[i];
+      if (!l.date) { maj[i] = { ...l, statut: { ok: false, msg: 'Date manquante' } }; continue; }
+      try {
+        const r = await api.post('/evaluations/check-conflit', {
+          formation_id: sel.formation_id, promotion_id: promo.id, niveau: sel.niveau,
+          date_demarrage: l.date, date_fin_prevue: l.date,
+          heure_debut: l.heure_debut, heure_fin: l.heure_fin, groupe: sel.groupe || null,
+        });
+        const capa = r.data.capacite;
+        maj[i] = { ...l, statut: capa
+          ? { ok: false, msg: capa.satures.map(x => `${x.eno} ${x.demande}/${x.capacite}`).join(' · ') }
+          : { ok: true, msg: 'Capacité OK' } };
+      } catch { maj[i] = { ...l, statut: { ok: false, msg: 'Vérification impossible' } }; }
+    }
+    setLignes(maj);
+    setVerif(false);
+  }
+
+  async function creer() {
+    const promo = promos.find(p => p.code === sel.promotion_code);
+    if (!annee || !promo || !cursusSel || !sel.semestre_code) return toast.error('Complétez le cursus et le semestre');
+    const valides = lignes.filter(l => l.date);
+    if (valides.length === 0) return toast.error('Ajoutez au moins un jour d\'épreuves');
+    const pole = poles.find(p => p.code === cursusSel.pole_code);
+    const dates = valides.map(l => l.date).sort();
+    const debuts = valides.map(l => l.heure_debut).filter(Boolean).sort();
+    const fins = valides.map(l => l.heure_fin).filter(Boolean).sort();
+    setCreation(true);
+    try {
+      await api.post('/evaluations', {
+        annee_id: annee.id, pole_id: pole?.id, promotion_id: promo.id, formation_id: Number(sel.formation_id),
+        niveau: sel.niveau, semestre_code: sel.semestre_code, session_num: sel.session_num,
+        type_evaluation: 'EVALUATION',
+        date_demarrage: dates[0], date_fin_prevue: dates[dates.length - 1],
+        heure_debut: debuts[0] || '', heure_fin: fins[fins.length - 1] || '',
+        groupe: sel.groupe || null,
+        epreuves: valides.map(l => ({
+          date: l.date, heure_debut: l.heure_debut, heure_fin: l.heure_fin,
+          matieres: l.matieres.split('\n').map(s => s.trim()).filter(Boolean),
+        })),
+      });
+      toast.success('Évaluation créée avec son calendrier d\'épreuves');
+      const qs = new URLSearchParams({
+        formations: String(sel.formation_id), promotions: sel.promotion_code,
+        niveaux: sel.niveau, semestres: sel.semestre_code, sessions: String(sel.session_num),
+      });
+      window.open(`/calendrier-examens?${qs}`, '_blank');
+    } catch (err) {
+      toast.error(err.response?.data?.error || 'Erreur à la création', { duration: 8000 });
+    } finally { setCreation(false); }
+  }
+
+  return (
+    <div className="card space-y-4">
+      <div>
+        <h2 className="font-semibold text-slate-800 flex items-center gap-2"><FileDown size={16} /> Concepteur de calendrier d'examens</h2>
+        <p className="text-xs text-slate-500 mt-0.5">
+          Composez un calendrier fini (jours, créneaux, matières) : chaque créneau est vérifié contre la capacité des ENO,
+          puis l'évaluation est créée et le <strong>calendrier officiel PDF</strong> s'ouvre, prêt à diffuser.
+        </p>
+      </div>
+
+      {/* Cursus */}
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+        <div>
+          <label className="text-xs font-medium text-slate-600 block mb-1">Promotion *</label>
+          <select value={sel.promotion_code} onChange={e => setSel(s => ({ ...s, promotion_code: e.target.value, niveau: '', formation_id: '', semestre_code: '' }))}>
+            <option value="">—</option>
+            {promosDispo.map(p => <option key={p}>{p}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600 block mb-1">Niveau *</label>
+          <select value={sel.niveau} onChange={e => setSel(s => ({ ...s, niveau: e.target.value, formation_id: '', semestre_code: '' }))}>
+            <option value="">—</option>
+            {niveauxDispo.map(n => <option key={n}>{n}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600 block mb-1">Formation *</label>
+          <select value={sel.formation_id} onChange={e => setSel(s => ({ ...s, formation_id: e.target.value }))}>
+            <option value="">—</option>
+            {formationsDispo.map(c => <option key={c.formation_id} value={c.formation_id}>{c.pole_code} — {c.formation_code || c.formation_nom} ({c.total.toLocaleString('fr-FR')} étud.)</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600 block mb-1">Semestre *</label>
+          <select value={sel.semestre_code} onChange={e => setSel(s => ({ ...s, semestre_code: e.target.value }))}>
+            <option value="">—</option>
+            {semestres.map(s => <option key={s}>{s}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-slate-600 block mb-1">Session *</label>
+          <select value={sel.session_num} onChange={e => setSel(s => ({ ...s, session_num: parseInt(e.target.value) }))}>
+            <option value={1}>Normale (SN)</option>
+            <option value={2}>Rattrapage (SR)</option>
+            <option value={3}>Spéciale (SS)</option>
+          </select>
+        </div>
+      </div>
+
+      {/* Groupes automatiques */}
+      {groupesRequis.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+          <p className="text-xs text-amber-800">
+            👥 <strong>Effectif supérieur à la capacité d'accueil</strong> dans :{' '}
+            {groupesRequis.map(g => `${g.eno} (${g.effectif}/${g.capacite})`).join(' · ')} —
+            la promotion est scindée en <strong>2 groupes</strong> : concevez un calendrier par groupe.
+          </p>
+          <div className="flex gap-2">
+            {[['', 'Toute la promotion'], ['G1', 'Groupe 1'], ['G2', 'Groupe 2']].map(([v, l]) => (
+              <button type="button" key={v} onClick={() => setSel(s => ({ ...s, groupe: v }))}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${sel.groupe === v ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Jours / créneaux / matières */}
+      <div className="overflow-x-auto nav-scroll">
+        <table className="w-full text-xs min-w-max">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200 text-left">
+              {['Date', 'Heure début', 'Heure fin', 'Matières (EC) — une par ligne', 'Capacité', ''].map(h => <th key={h} className="px-2 py-2 font-bold text-slate-500">{h}</th>)}
+            </tr>
+          </thead>
+          <tbody>
+            {lignes.map((l, i) => (
+              <tr key={i} className="border-b border-slate-50 align-top">
+                <td className="px-2 py-1.5"><input type="date" value={l.date} onChange={e => majLigne(i, { date: e.target.value })} className="!py-1 !text-xs" /></td>
+                <td className="px-2 py-1.5"><input type="time" value={l.heure_debut} onChange={e => majLigne(i, { heure_debut: e.target.value })} className="!py-1 !text-xs !w-24" /></td>
+                <td className="px-2 py-1.5"><input type="time" value={l.heure_fin} onChange={e => majLigne(i, { heure_fin: e.target.value })} className="!py-1 !text-xs !w-24" /></td>
+                <td className="px-2 py-1.5">
+                  <textarea value={l.matieres} onChange={e => majLigne(i, { matieres: e.target.value })} rows={2}
+                    placeholder={'Relations internationales 2\nRégimes politiques 2'} className="!py-1 !text-xs w-72 resize-y" />
+                </td>
+                <td className="px-2 py-1.5 w-44">
+                  {l.statut === null ? <span className="text-slate-300">—</span>
+                    : l.statut.ok ? <span className="text-green-600 font-semibold">✓ {l.statut.msg}</span>
+                    : <span className="text-red-600 font-semibold" title={l.statut.msg}>⛔ {l.statut.msg.slice(0, 60)}</span>}
+                </td>
+                <td className="px-1 py-1.5">
+                  <button onClick={() => setLignes(ls => ls.filter((_, j) => j !== i))} className="p-1 text-red-300 hover:text-red-500" title="Retirer ce créneau"><Trash2 size={13} /></button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => setLignes(ls => [...ls, { date: '', heure_debut: '08:30', heure_fin: '13:00', matieres: '', statut: null }])}
+          className="btn-secondary !py-1.5 !px-3 text-xs flex items-center gap-1.5"><Plus size={13} /> Ajouter un jour / créneau</button>
+        <span className="ml-auto flex gap-2">
+          <button onClick={verifier} disabled={verif} className="btn-secondary !py-1.5 !px-4 text-xs">{verif ? 'Vérification…' : '🧪 Vérifier la capacité'}</button>
+          <button onClick={creer} disabled={creation} className="btn-primary !py-1.5 !px-4 text-xs">{creation ? 'Création…' : '📄 Créer l\'évaluation + calendrier PDF'}</button>
+        </span>
+      </div>
+      <p className="text-[11px] text-slate-400">
+        Les dates doivent s'inscrire dans les plages du Planning annuel du pôle. Pour organiser plusieurs formations, promotions ou niveaux
+        sur la même période, concevez un calendrier par cursus — le contrôle de capacité cumule automatiquement tout ce qui partage un créneau.
+      </p>
     </div>
   );
 }

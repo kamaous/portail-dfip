@@ -155,7 +155,7 @@ export default function CalendrierExamens() {
               {g.evals.map(e => (
                 <tr key={e.id} className="border-b border-slate-200">
                   <td className="px-2 py-2 font-semibold">{e.type_evaluation === 'DEVOIR' ? 'Devoir' : 'Examen'}</td>
-                  <td className="px-2 py-2">{SESSION_CODE[e.session_num]}</td>
+                  <td className="px-2 py-2">{SESSION_CODE[e.session_num]}{e.groupe ? ` · ${e.groupe}` : ''}</td>
                   <td className="px-2 py-2">{e.promotion_code || '—'}</td>
                   <td className="px-2 py-2">{e.niveau || '—'}</td>
                   <td className="px-2 py-2">{e.semestre_code || '—'}</td>
@@ -175,7 +175,34 @@ export default function CalendrierExamens() {
                 {e.type_evaluation === 'DEVOIR' ? '📝 Devoir' : '🧪 Examen'} — {SESSION_LBL[e.session_num]}
                 {e.promotion_code ? ` · ${e.promotion_code}` : ''}{e.niveau ? ` · ${e.niveau}` : ''}
                 {e.semestre_code ? ` · Semestre ${e.semestre_code.replace('S', '')}` : ''}
+                {e.groupe ? ` · ${e.groupe === 'G1' ? 'GROUPE 1' : 'GROUPE 2'}` : ''}
               </p>
+              {/* Calendrier détaillé des épreuves (concepteur) : Dates | Matières (EC) | Heures */}
+              {(() => {
+                let eps = null;
+                try { eps = e.epreuves ? JSON.parse(e.epreuves) : null; } catch { eps = null; }
+                if (!eps || eps.length === 0) return null;
+                return (
+                  <table className="w-full text-xs mt-3 mb-1">
+                    <thead><tr className="bg-slate-100 text-left">
+                      {['Dates', 'Matières (EC)', 'Heures'].map(h => <th key={h} className="px-2.5 py-1.5 font-bold text-[#1e3a5f]">{h}</th>)}
+                    </tr></thead>
+                    <tbody>
+                      {eps.map((ep, i) => (
+                        <tr key={i} className="border-b border-slate-200 align-top">
+                          <td className="px-2.5 py-1.5 font-semibold whitespace-nowrap capitalize">{fmtDate(ep.date)}</td>
+                          <td className="px-2.5 py-1.5">
+                            {(ep.matieres || []).length > 0
+                              ? ep.matieres.map((m, j) => <p key={j} className="mb-0.5">{m}</p>)
+                              : <span className="text-slate-400 italic">—</span>}
+                          </td>
+                          <td className="px-2.5 py-1.5 whitespace-nowrap">{ep.heure_debut ? `${ep.heure_debut} – ${ep.heure_fin || '—'}` : 'Journée entière'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                );
+              })()}
               <div className="grid grid-cols-2 gap-x-6 gap-y-1 mt-2 text-xs">
                 <p><span className="text-slate-500">Début :</span> <strong>{fmtDate(e.date_demarrage)}</strong></p>
                 <p><span className="text-slate-500">Fin :</span> <strong>{fmtDate(e.date_fin_prevue)}</strong></p>
@@ -189,6 +216,19 @@ export default function CalendrierExamens() {
           ))}
         </div>
       ))}
+
+      {/* Consignes officielles d'examen (affichées quand le document contient un calendrier détaillé) */}
+      {selection.some(e => { try { return e.epreuves && JSON.parse(e.epreuves).length > 0; } catch { return false; } }) && (
+        <div className="border-2 border-[#1e3a5f] rounded-xl p-4 mt-2 text-xs break-inside-avoid">
+          <p className="font-bold text-[#1e3a5f] mb-2">NB : Les étudiants sont tenus d'apporter leur machine bien chargée et leur modem.</p>
+          <ul className="list-disc pl-5 space-y-1 text-slate-700">
+            <li>L'étudiant aura le choix de commencer par n'importe quelle épreuve. Il ne sortira de la salle d'examen qu'après avoir fait toutes les épreuves, sauf cas de force majeure.</li>
+            <li>Une tenue vestimentaire correcte et décente est exigée en salle d'examen. Elle doit être exempte de toute excentricité (pantalons déchirés, tenues trop courtes, moulantes ou décolletées, sous-vêtements apparents, short…).</li>
+            <li>Le port de casquettes, capuches ou bonnets est strictement interdit à l'intérieur de la salle d'examen ; ces accessoires doivent être retirés avant l'entrée en salle.</li>
+            <li>L'usage de l'Intelligence Artificielle (IA) est strictement interdit. Tout usage avéré ou tentative d'usage de l'IA (ChatGPT, Copilot, Gemini, etc.) pour le traitement des épreuves entraîne une comparution devant le conseil de discipline.</li>
+          </ul>
+        </div>
+      )}
 
       <p className="text-[10px] text-slate-400 text-center border-t border-slate-200 pt-3 mt-8">
         Portail DFIP — UnCHK · Document généré le {new Date().toLocaleDateString('fr-FR')} par {user?.prenom} {user?.nom} · Sous réserve de modifications publiées sur le portail

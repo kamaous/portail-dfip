@@ -216,9 +216,16 @@ router.post('/effectifs/bulk', auth, requireRole('DIRECTEUR_DES'), (req, res) =>
 });
 
 /* ===== Simulateur =====
-   selections: [{ promotion_code, niveau, formation_id }]
+   selections: [{ promotion_code, niveau, formation_id, groupe? }]
+   groupe 'G1' | 'G2' : la promotion est scindée en deux — l'effectif compté est
+   divisé par deux (arrondi supérieur pour G1, inférieur pour G2).
    date_demarrage / date_fin_prevue (optionnels) : ajoute la charge des évaluations
    déjà programmées qui chevauchent la période. */
+function effectifGroupe(nombre, groupe) {
+  if (groupe === 'G1') return Math.ceil(nombre / 2);
+  if (groupe === 'G2') return Math.floor(nombre / 2);
+  return nombre;
+}
 function chargeParEno(db, selections) {
   const demande = {}; // eno_id → { total, detail: [{formation, nombre}] }
   for (const sel of selections) {
@@ -228,9 +235,13 @@ function chargeParEno(db, selections) {
       WHERE ef.promotion_code = ? AND ef.niveau = ? AND ef.formation_id = ?
     `).all(sel.promotion_code, sel.niveau, sel.formation_id);
     for (const r of rows) {
+      const n = effectifGroupe(r.nombre, sel.groupe);
       demande[r.eno_id] = demande[r.eno_id] || { total: 0, detail: [] };
-      demande[r.eno_id].total += r.nombre;
-      demande[r.eno_id].detail.push({ formation: r.formation_code || r.formation_nom, cursus: `${sel.promotion_code} ${sel.niveau}`, nombre: r.nombre });
+      demande[r.eno_id].total += n;
+      demande[r.eno_id].detail.push({
+        formation: `${r.formation_code || r.formation_nom}${sel.groupe ? ` (${sel.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'})` : ''}`,
+        cursus: `${sel.promotion_code} ${sel.niveau}`, nombre: n,
+      });
     }
   }
   return demande;
@@ -250,7 +261,7 @@ function simuler(db, { selections, date_demarrage, date_fin_prevue, heure_debut,
   if (date_demarrage) {
     const fin = date_fin_prevue || date_demarrage;
     const evals = db.prepare(`
-      SELECT se.id, se.formation_id, se.niveau, se.heure_debut, se.heure_fin, pr.code as promotion_code
+      SELECT se.id, se.formation_id, se.niveau, se.heure_debut, se.heure_fin, se.groupe, pr.code as promotion_code
       FROM sessions_examen se LEFT JOIN promotions pr ON pr.id = se.promotion_id
       WHERE se.date_demarrage IS NOT NULL
         AND se.etat NOT IN ('ANNULE', 'SUSPENDU')
@@ -259,12 +270,14 @@ function simuler(db, { selections, date_demarrage, date_fin_prevue, heure_debut,
         AND se.formation_id IS NOT NULL AND se.niveau IS NOT NULL AND pr.code IS NOT NULL
     `).all(fin, date_demarrage, exclure_id ?? null)
       .filter(ev => chevaucheHeures(heure_debut, heure_fin, ev.heure_debut, ev.heure_fin));
-    const dejaComptees = new Set(selections.map(s => `${s.promotion_code}|${s.niveau}|${s.formation_id}`));
+    // Clé de dédoublonnage incluant le GROUPE : G1 et G2 d'une même formation
+    // programmés au même créneau se cumulent (chacun pour sa moitié d'effectif)
+    const dejaComptees = new Set(selections.map(s => `${s.promotion_code}|${s.niveau}|${s.formation_id}|${s.groupe || 'TOUS'}`));
     for (const ev of evals) {
-      const cle = `${ev.promotion_code}|${ev.niveau}|${ev.formation_id}`;
+      const cle = `${ev.promotion_code}|${ev.niveau}|${ev.formation_id}|${ev.groupe || 'TOUS'}`;
       if (dejaComptees.has(cle)) continue;
       dejaComptees.add(cle);
-      const d2 = chargeParEno(db, [{ promotion_code: ev.promotion_code, niveau: ev.niveau, formation_id: ev.formation_id }]);
+      const d2 = chargeParEno(db, [{ promotion_code: ev.promotion_code, niveau: ev.niveau, formation_id: ev.formation_id, groupe: ev.groupe }]);
       for (const [enoId, v] of Object.entries(d2)) {
         demande[enoId] = demande[enoId] || { total: 0, detail: [] };
         demande[enoId].total += v.total;
@@ -296,6 +309,7 @@ function simuler(db, { selections, date_demarrage, date_fin_prevue, heure_debut,
     capacites_inconnues: inconnues.map(r => r.eno),
     total_demande: resultat.reduce((s, r) => s + r.demande, 0),
     suggestions: satures.length === 0 ? [] : [
+      'Scinder la formation en deux groupes (Groupe 1 / Groupe 2) programmés sur des créneaux différents — le choix du groupe est proposé à la création de l\'évaluation.',
       'Décaler une partie des formations vers un autre créneau (matin / après-midi) ou un autre jour.',
       `Réduire la sélection : retirer la formation la plus nombreuse dans ${satures[0].eno} (voir le détail par ENO).`,
       'Vérifier avec les Chargés de scolarité si des salles supplémentaires peuvent être ouvertes dans les ENO saturés.',

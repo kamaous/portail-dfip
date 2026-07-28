@@ -42,7 +42,7 @@ function plagesEvaluations(db, annee_id, poleId) {
    chevauchent vs capacité de chaque ENO). Sans effectifs connus pour le cursus,
    aucun blocage. */
 const { simuler } = require('./statistiques');
-function conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id }) {
+function conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe, exclure_id }) {
   if (!date_demarrage || !formation_id || !niveau || !promotion_id) return null;
   const promo = db.prepare('SELECT code FROM promotions WHERE id = ?').get(promotion_id);
   if (!promo) return null;
@@ -50,10 +50,47 @@ function conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrag
     .get(promo.code, niveau, formation_id).c;
   if (connus === 0) return null; // cursus sans effectifs renseignés → pas de contrôle
   const r = simuler(db, {
-    selections: [{ promotion_code: promo.code, niveau, formation_id }],
+    selections: [{ promotion_code: promo.code, niveau, formation_id, groupe: groupe || null }],
     date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id,
   });
   return r.faisable ? null : r;
+}
+
+/* ENO où l'effectif du cursus dépasse À LUI SEUL la capacité d'accueil :
+   la promotion doit alors être scindée en 2 groupes (G1 / G2). */
+function enosNecessitantGroupes(db, { formation_id, promotion_id, niveau }) {
+  if (!formation_id || !promotion_id || !niveau) return [];
+  const promo = db.prepare('SELECT code FROM promotions WHERE id = ?').get(promotion_id);
+  if (!promo) return [];
+  const rows = db.prepare(`
+    SELECT e.id, e.nom, e.capacite, ef.nombre,
+      (SELECT COALESCE(SUM(CASE WHEN s.disponible = 1 THEN s.capacite ELSE 0 END), -1)
+       FROM eno_salles s WHERE s.eno_id = e.id) as cap_salles,
+      (SELECT COUNT(*) FROM eno_salles s WHERE s.eno_id = e.id) as nb_salles
+    FROM effectifs ef JOIN enos e ON e.id = ef.eno_id
+    WHERE ef.promotion_code = ? AND ef.niveau = ? AND ef.formation_id = ? AND e.actif = 1
+  `).all(promo.code, niveau, formation_id);
+  return rows
+    .map(r => ({ eno: r.nom, effectif: r.nombre, capacite: r.nb_salles > 0 ? r.cap_salles : r.capacite }))
+    .filter(r => r.capacite > 0 && r.effectif > r.capacite);
+}
+
+const GROUPES_VALIDES = [null, '', 'G1', 'G2'];
+function normaliseEpreuves(epreuves) {
+  if (epreuves === undefined) return undefined;      // champ absent → inchangé
+  if (!epreuves) return null;
+  const arr = typeof epreuves === 'string' ? JSON.parse(epreuves) : epreuves;
+  if (!Array.isArray(arr)) throw new Error('epreuves doit être une liste');
+  return JSON.stringify(arr
+    .filter(e => e && e.date)
+    .map(e => ({
+      date: String(e.date),
+      heure_debut: e.heure_debut || null,
+      heure_fin: e.heure_fin || null,
+      matieres: Array.isArray(e.matieres) ? e.matieres.map(String).filter(Boolean) : [],
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date) || String(a.heure_debut || '').localeCompare(String(b.heure_debut || '')))
+  );
 }
 
 function dansUnePlage(plages, d1, d2) {
@@ -121,21 +158,33 @@ router.post('/check-date', auth, (req, res) => {
 // POST /api/evaluations/check-conflit — pré-contrôle de CAPACITÉ des ENO (pour l'UI)
 router.post('/check-conflit', auth, (req, res) => {
   const db = getDb();
-  const { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id } = req.body;
-  if (!formation_id || !promotion_id || !niveau || !date_demarrage) return res.json({ capacite: null });
-  res.json({ capacite: conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, exclure_id }) });
+  const { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe, exclure_id } = req.body;
+  if (!formation_id || !promotion_id || !niveau) return res.json({ capacite: null, groupes_requis: [] });
+  // ENO où l'effectif du cursus dépasse à lui seul la capacité → scission G1/G2 proposée
+  const groupes_requis = enosNecessitantGroupes(db, { formation_id, promotion_id, niveau });
+  if (!date_demarrage) return res.json({ capacite: null, groupes_requis });
+  res.json({
+    capacite: conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe: groupe || null, exclure_id }),
+    groupes_requis,
+  });
 });
 
 /* ===== Création (Responsables de formation, dans les plages du planning) ===== */
 router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
   const { annee_id, pole_id, promotion_id, formation_id, niveau, semestre_code, session_num,
-          type_evaluation, date_demarrage, date_fin_prevue, heure_debut, heure_fin } = req.body;
+          type_evaluation, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe, epreuves } = req.body;
   if (!annee_id || !pole_id || !formation_id) {
     return res.status(400).json({ error: 'Année, pôle et formation requis' });
   }
   if (!date_demarrage || !date_fin_prevue) {
     return res.status(400).json({ error: 'Date de démarrage et date de clôture requises' });
   }
+  if (!GROUPES_VALIDES.includes(groupe ?? null)) {
+    return res.status(400).json({ error: 'Groupe invalide (G1 ou G2)' });
+  }
+  let epreuvesJson = null;
+  try { epreuvesJson = normaliseEpreuves(epreuves) ?? null; }
+  catch { return res.status(400).json({ error: 'Format des épreuves invalide' }); }
 
   const db = getDb();
 
@@ -150,12 +199,12 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
 
   // RÈGLE MÉTIER : capacité physique des ENO (effectifs cumulés des évaluations simultanées,
   // au même créneau horaire — deux créneaux disjoints ne se cumulent pas)
-  const capa = conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin });
+  const capa = conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe: groupe || null });
   if (capa) {
-    const s = capa.satures[0];
     return res.status(409).json({
-      error: `Capacité ENO dépassée : ${capa.satures.map(x => `${x.eno} (${x.demande}/${x.capacite}, ${x.manque} places manquantes)`).join(' ; ')}. Changez les dates ou répartissez les formations sur d'autres créneaux.`,
+      error: `Capacité ENO dépassée : ${capa.satures.map(x => `${x.eno} (${x.demande}/${x.capacite}, ${x.manque} places manquantes)`).join(' ; ')}. Changez les dates, répartissez sur d'autres créneaux ou scindez en groupes G1/G2.`,
       conflit: true, capacite: capa,
+      groupes_requis: enosNecessitantGroupes(db, { formation_id, promotion_id, niveau }),
     });
   }
 
@@ -166,11 +215,11 @@ router.post('/', auth, requireRole(...CREATE_ROLES), (req, res) => {
 
   const r = db.prepare(`
     INSERT INTO sessions_examen (annee_id, pole_id, promotion_id, formation_id, niveau, semestre_code,
-      session_num, type_evaluation, date_demarrage, date_fin_prevue, heure_debut, heure_fin, created_by)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      session_num, type_evaluation, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe, epreuves, created_by)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(annee_id, pole_id, promotion_id || null, formation_id || null, niveau || null, semestre_code || null,
     session_num || 1, type_evaluation === 'DEVOIR' ? 'DEVOIR' : 'EVALUATION',
-    date_demarrage, date_fin_prevue, heure_debut || null, heure_fin || null, req.user.id);
+    date_demarrage, date_fin_prevue, heure_debut || null, heure_fin || null, groupe || null, epreuvesJson, req.user.id);
 
   const filiere = db.prepare('SELECT nom FROM formations WHERE id = ?').get(formation_id);
   notifierConcernes({
@@ -194,7 +243,13 @@ router.put('/:id', auth, (req, res) => {
 
   const { date_demarrage, date_fin_prevue, heure_debut, heure_fin, session_num, type_evaluation,
           reception_epreuves, date_programmation, implementation_epreuves, etat_eval,
-          delib_etat, date_deliberation, etat, observations, motif } = req.body;
+          delib_etat, date_deliberation, etat, observations, motif, groupe, epreuves } = req.body;
+  if (groupe !== undefined && !GROUPES_VALIDES.includes(groupe ?? null)) {
+    return res.status(400).json({ error: 'Groupe invalide (G1 ou G2)' });
+  }
+  let epreuvesJson;
+  try { epreuvesJson = normaliseEpreuves(epreuves); } // undefined = inchangé
+  catch { return res.status(400).json({ error: 'Format des épreuves invalide' }); }
 
   const estSuivi = SUIVI_ROLES.includes(req.user.role);
   // Dates : Responsable pédagogique du pôle (les RF signalent, ils ne modifient pas)
@@ -225,9 +280,10 @@ router.put('/:id', auth, (req, res) => {
     return res.status(403).json({ error: 'Le suivi des évaluations est réservé au Chef de division DFE.' });
   }
 
-  // --- Dates (Responsable de formation ou Chef DFE) : toujours dans les plages ---
+  // --- Dates / groupe (Responsable de formation ou Chef DFE) : toujours dans les plages ---
+  // (changer de groupe modifie la charge de capacité → même contrôle que les dates)
   const changeDates = date_demarrage !== undefined || date_fin_prevue !== undefined
-    || heure_debut !== undefined || heure_fin !== undefined;
+    || heure_debut !== undefined || heure_fin !== undefined || groupe !== undefined;
   if (changeDates && prev.activite_id) {
     return res.status(409).json({ error: 'Cette évaluation est liée au Planning annuel : modifiez les dates de l\'activité dans le planning.' });
   }
@@ -247,6 +303,7 @@ router.put('/:id', auth, (req, res) => {
       date_fin_prevue: date_fin_prevue ?? prev.date_fin_prevue,
       heure_debut: heure_debut !== undefined ? heure_debut : prev.heure_debut,
       heure_fin: heure_fin !== undefined ? heure_fin : prev.heure_fin,
+      groupe: groupe !== undefined ? (groupe || null) : prev.groupe,
       exclure_id: prev.id,
     });
     if (capa) {
@@ -287,7 +344,7 @@ router.put('/:id', auth, (req, res) => {
 
   db.prepare(`
     UPDATE sessions_examen SET
-      date_demarrage=?, date_fin_prevue=?, heure_debut=?, heure_fin=?, session_num=?, type_evaluation=?,
+      date_demarrage=?, date_fin_prevue=?, heure_debut=?, heure_fin=?, groupe=?, epreuves=?, session_num=?, type_evaluation=?,
       reception_epreuves=?, date_programmation=?, implementation_epreuves=?, etat_eval=?,
       delib_etat=?, date_deliberation=?, deliberation=?, etat=?, observations=?, updated_at=datetime('now')
     WHERE id=?
@@ -296,6 +353,8 @@ router.put('/:id', auth, (req, res) => {
     date_fin_prevue ?? prev.date_fin_prevue,
     heure_debut !== undefined ? (heure_debut || null) : prev.heure_debut,
     heure_fin !== undefined ? (heure_fin || null) : prev.heure_fin,
+    groupe !== undefined ? (groupe || null) : prev.groupe,
+    epreuvesJson !== undefined ? epreuvesJson : prev.epreuves,
     session_num ?? prev.session_num,
     type_evaluation ?? prev.type_evaluation,
     reception_epreuves ?? prev.reception_epreuves,

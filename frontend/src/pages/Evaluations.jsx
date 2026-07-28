@@ -58,7 +58,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
     session_num: 1, type_evaluation: 'EVALUATION', date_demarrage: defaultDate || '', date_fin_prevue: '',
-    heure_debut: '', heure_fin: '',
+    heure_debut: '', heure_fin: '', groupe: '',
   });
   const [plages, setPlages] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -76,16 +76,18 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
   const sansPlage = !!form.pole_id && plages !== null && plages.length === 0;
 
   // Pré-contrôle de CAPACITÉ des ENO en direct (effectifs cumulés vs capacités)
+  // + détection des ENO où l'effectif dépasse à lui seul la capacité → groupes G1/G2
   const [capaciteLive, setCapaciteLive] = useState(null);
+  const [groupesRequis, setGroupesRequis] = useState([]);
   useEffect(() => {
     setCapaciteLive(null);
-    if (!form.formation_id || !form.promotion_id || !form.niveau || !form.date_demarrage) return;
+    if (!form.formation_id || !form.promotion_id || !form.niveau) { setGroupesRequis([]); return; }
     api.post('/evaluations/check-conflit', {
       formation_id: form.formation_id, promotion_id: form.promotion_id, niveau: form.niveau,
       date_demarrage: form.date_demarrage, date_fin_prevue: form.date_fin_prevue,
-      heure_debut: form.heure_debut, heure_fin: form.heure_fin,
-    }).then(r => setCapaciteLive(r.data.capacite || null)).catch(() => {});
-  }, [form.formation_id, form.promotion_id, form.niveau, form.date_demarrage, form.date_fin_prevue, form.heure_debut, form.heure_fin]);
+      heure_debut: form.heure_debut, heure_fin: form.heure_fin, groupe: form.groupe || null,
+    }).then(r => { setCapaciteLive(r.data.capacite || null); setGroupesRequis(r.data.groupes_requis || []); }).catch(() => {});
+  }, [form.formation_id, form.promotion_id, form.niveau, form.date_demarrage, form.date_fin_prevue, form.heure_debut, form.heure_fin, form.groupe]);
 
   async function submit(e) {
     e.preventDefault();
@@ -175,6 +177,26 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
           <p className="text-[11px] text-slate-400 -mt-2">
             🕐 Le créneau permet la programmation simultanée : deux évaluations aux mêmes dates mais à des heures différentes ne se cumulent pas dans les ENO.
           </p>
+
+          {/* GROUPES : proposés automatiquement quand l'effectif dépasse la capacité d'un ENO */}
+          {groupesRequis.length > 0 && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
+              <p className="text-xs text-amber-800">
+                👥 <strong>Effectif supérieur à la capacité d'accueil</strong> dans :{' '}
+                {groupesRequis.map(g => `${g.eno} (${g.effectif} étud. / ${g.capacite} places)`).join(' · ')}.
+                <br />La promotion est automatiquement scindée en <strong>2 groupes</strong> — programmez chaque groupe sur son propre créneau.
+              </p>
+              <div className="flex gap-2">
+                {[['', 'Toute la promotion'], ['G1', 'Groupe 1'], ['G2', 'Groupe 2']].map(([v, l]) => (
+                  <button type="button" key={v} onClick={() => setForm(f => ({ ...f, groupe: v }))}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${form.groupe === v ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
+                    {l}
+                  </button>
+                ))}
+              </div>
+              {form.groupe && <p className="text-[11px] text-amber-700">Seule la moitié de l'effectif ({form.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'}) sera comptée dans les ENO pour ce créneau.</p>}
+            </div>
+          )}
           {horsPlage && <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages autorisées — l'enregistrement sera refusé.</p>}
           {capaciteLive && (
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
@@ -501,7 +523,7 @@ export default function Evaluations() {
                 return {
                   debut: s.date_demarrage, fin,
                   color: s.etat === 'ANNULE' ? '#dc2626' : s.etat === 'SUSPENDU' ? '#7c3aed' : (ETAT_BAR[s.etat_eval] || seg.color),
-                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${!segment ? `${s.pole_code} · ` : ''}${s.promotion_code ? `${s.promotion_code} - ` : ''}${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
+                  label: `${s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}${!segment ? `${s.pole_code} · ` : ''}${s.promotion_code ? `${s.promotion_code} - ` : ''}${s.formation_code || s.formation_nom || s.pole_code} ${s.niveau || ''} ${s.semestre_code || ''} ${SESSION_CODE[s.session_num]}${s.groupe ? ` ${s.groupe}` : ''}${s.delib_etat === 'TERMINEE' ? ' ⚖' : ''}`,
                   titre: `${s.pole_code}${s.promotion_code ? ` — Promotion ${s.promotion_code}` : ' — promotion non renseignée'} — ${s.formation_nom || 'Formation non précisée'} ${NIVEAUX[s.niveau]?.label || ''} Semestre ${(s.semestre_code || '').replace('S', '')} · ${TYPE_EVAL[s.type_evaluation]?.label || ''} ${SESSION_LABEL[s.session_num]} : ${s.date_demarrage} → ${fin} — ${ETAT_EVAL.options[s.etat_eval]}${s.delib_etat === 'TERMINEE' ? ' · Délibéré' : ''} (cliquer pour les détails)`,
                   onClick: () => setDetailId(s.id),
                 };
@@ -657,6 +679,7 @@ function CarteEvaluation({ s, update, changerDate, annuler, del, demanderSuppres
           <div className="flex items-center gap-2 flex-wrap">
             <h3 className="font-semibold text-slate-800">{SESSION_LABEL[s.session_num]}</h3>
             <span className={`badge ${TYPE_EVAL[s.type_evaluation]?.color || ''}`}>{TYPE_EVAL[s.type_evaluation]?.label}</span>
+            {s.groupe && <span className="badge bg-amber-100 text-amber-800" title="Promotion scindée : seule la moitié de l'effectif est comptée dans les ENO">👥 {s.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'}</span>}
             {s.activite_id && <span className="badge bg-indigo-100 text-indigo-700" title="Issue du planning annuel — dates pilotées par l'activité liée">🔗 Planning annuel</span>}
             {s.etat === 'ANNULE' && <span className="badge bg-red-100 text-red-700">Annulée</span>}
           </div>

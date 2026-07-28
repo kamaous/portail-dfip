@@ -98,8 +98,16 @@ export const NIVEAUX = {
 /* Progression du tutorat — quota officiel :
    1. Validation de la fiche : 10 %
    2. Écoulement de la durée fixée (démarrage → fin prévue) : 90 % */
+/* Progression par JALONS (même logique que les évaluations) :
+   0 % tant que la fiche n'est pas validée · 10 % fiche validée ·
+   +90 % au prorata du temps écoulé UNIQUEMENT quand le tutorat est réellement
+   EN COURS (tous les indicateurs OK) · 100 % quand il est terminé.
+   → une fiche « En attente de démarrage » ne peut plus afficher 100 %. */
 export function progressionDates(t) {
   const valide = (t.statut_fiche === 'VALIDEE' || !t.statut_fiche) ? 0.10 : 0;
+  const etat = etatTutoratAuto(t);
+  if (etat === 'PAS_DEMARRE' || etat === 'PRET') return valide;
+  if (etat === 'TERMINE') return 1;
   const d = t.date_demarree_le || t.date_debut, f = t.date_terminee_le || t.date_fin;
   let temps = 0;
   if (d && f) {

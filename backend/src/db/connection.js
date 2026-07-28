@@ -493,6 +493,13 @@ function runMigrations() {
   addColumns('tutorat', { activite_id: 'INTEGER' });
   addColumns('sessions_examen', { activite_id: 'INTEGER' });
 
+  // Groupes d'examen (promotion scindée quand l'effectif dépasse la capacité d'un ENO)
+  // + calendrier détaillé des épreuves (concepteur : jours, créneaux, matières)
+  addColumns('sessions_examen', {
+    groupe: 'TEXT',     // NULL = toute la promotion | G1 | G2
+    epreuves: 'TEXT',   // JSON [{date, heure_debut, heure_fin, matieres: [..]}]
+  });
+
   // Rattrapage : créer les entrées liées pour les activités typées existantes
   const segPole = { PSEJA: 'SEJA', PSTN: 'STN', PLSHE: 'LSHE' };
   const nivMap = { 'Licence 1': 'L1', 'Licence 2': 'L2', 'Licence 3': 'L3', 'Master 1': 'M1', 'Master 2': 'M2' };
