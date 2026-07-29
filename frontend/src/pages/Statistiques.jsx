@@ -148,7 +148,7 @@ export default function Statistiques() {
       </div>
 
       {onglet === 'SYNTHESE' && <Synthese effectifs={effectifs} enos={enos} />}
-      {onglet === 'EFFECTIFS' && <Effectifs enos={enos} estGestion={estSaisie} />}
+      {onglet === 'EFFECTIFS' && <Effectifs enos={enos} poles={poles} estGestion={estSaisie} />}
       {onglet === 'ENO' && <GestionEno enos={enos} estGestion={estGestion} estCharge={estCharge} monEno={user?.eno_id} onChange={load} />}
       {onglet === 'SIMULATEUR' && (
         <>
@@ -258,7 +258,7 @@ function Synthese({ effectifs, enos }) {
 }
 
 /* ===== Onglet Effectifs : segments pôle + promo/niveau + recherche + export ===== */
-function Effectifs({ enos, estGestion }) {
+function Effectifs({ enos, poles, estGestion }) {
   const [promo, setPromo] = useState('P13');
   const [niveau, setNiveau] = useState('L1');
   const [segment, setSegment] = useState(null);
@@ -271,14 +271,21 @@ function Effectifs({ enos, estGestion }) {
     api.get(`/statistiques/effectifs?promotion_code=${promo}&niveau=${niveau}`).then(r => setRows(r.data)).catch(() => setRows([]));
   }, [promo, niveau]);
 
+  // TOUTES les formations du RÉFÉRENTIEL (pas seulement celles ayant déjà des
+  // effectifs) : une formation nouvellement créée par le DES apparaît donc
+  // immédiatement dans la matrice, pour toutes les promotions, tous les niveaux
+  // et tous les ENO — cellules vides prêtes à la saisie.
   const formations = useMemo(() => {
     const m = new Map();
-    rows.forEach(r => m.set(r.formation_id, { id: r.formation_id, code: r.formation_code || r.formation_nom, nom: r.formation_nom, pole: r.pole_code }));
+    (poles || []).forEach(p => (p.formations || []).forEach(f =>
+      m.set(f.id, { id: f.id, code: f.code || f.nom, nom: f.nom, pole: p.code })));
+    // Filet de sécurité : effectifs existants dont la formation manquerait au référentiel
+    rows.forEach(r => { if (!m.has(r.formation_id)) m.set(r.formation_id, { id: r.formation_id, code: r.formation_code || r.formation_nom, nom: r.formation_nom, pole: r.pole_code }); });
     return [...m.values()]
       .filter(f => (!segment || f.pole === segment)
         && (!recherche || `${f.code} ${f.nom}`.toLowerCase().includes(recherche.toLowerCase())))
-      .sort((a, b) => (a.pole || '').localeCompare(b.pole || '') || a.code.localeCompare(b.code));
-  }, [rows, segment, recherche]);
+      .sort((a, b) => (a.pole || '').localeCompare(b.pole || '') || String(a.code).localeCompare(String(b.code)));
+  }, [poles, rows, segment, recherche]);
   const val = (fId, eId) => rows.find(r => r.formation_id === fId && r.eno_id === eId)?.nombre ?? '';
 
   async function maj(fId, eId, nombre) {
