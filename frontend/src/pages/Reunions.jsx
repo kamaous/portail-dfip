@@ -179,7 +179,7 @@ export default function Reunions() {
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Réunions</h1>
-          <p className="text-slate-500 text-sm">Programmez et tenez vos réunions via TerangaMeet, sans quitter le portail</p>
+          <p className="text-slate-500 text-sm">Programmez et tenez vos réunions via TerangaMeet, sans quitter la plateforme</p>
         </div>
         <button onClick={() => setModal(true)} className="btn-primary flex items-center gap-2">
           <Plus size={16} /> Programmer une réunion

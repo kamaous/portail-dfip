@@ -52,7 +52,7 @@ export function BoutonSignaler({ cibleType, cibleId, contexte }) {
                   placeholder="Décrivez précisément le point à corriger ou la remarque..." required />
               </div>
               <p className="text-xs text-slate-500 bg-slate-50 rounded-xl p-2.5">
-                Le Responsable pédagogique du pôle sera notifié (portail + email) et devra traiter ce signalement.
+                Le Responsable pédagogique du pôle sera notifié (plateforme + email) et devra traiter ce signalement.
               </p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setOpen(false)} className="btn-secondary flex-1">Annuler</button>

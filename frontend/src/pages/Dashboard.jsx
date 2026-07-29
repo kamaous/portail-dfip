@@ -216,7 +216,7 @@ export default function Dashboard() {
 
       <div className="grid lg:grid-cols-3 gap-4">
         <div className="lg:col-span-2">
-          <ActivityChart title="Activité du portail" icon={Activity} data={stats?.activite_7j} />
+          <ActivityChart title="Activité de la plateforme" icon={Activity} data={stats?.activite_7j} />
         </div>
         <BarChart
           title="Utilisateurs par rôle"

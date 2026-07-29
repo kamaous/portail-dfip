@@ -15,7 +15,7 @@ const ROLE_LABELS = {
   CHEF_DIV_EVALUATION: 'Chef division DFE (Formation & Évaluations)', RESPONSABLE_POLE: 'Directeur de Pôle',
   RESPONSABLE_PEDAGOGIQUE: 'Responsable pédagogique du Pôle',
   RESPONSABLE_FORMATION: 'Responsable de Formation', MEMBRE_POLE: 'Membre de Pôle',
-  SCOLARITE: 'Scolarité', ENSEIGNANT: 'Enseignant', ETUDIANT: 'Étudiant', ADMIN_PORTAIL: 'Admin Portail',
+  SCOLARITE: 'Scolarité', ENSEIGNANT: 'Enseignant', ETUDIANT: 'Étudiant', ADMIN_PORTAIL: 'Admin Plateforme',
 };
 const ROLE_COLORS = {
   RECTEUR: 'bg-slate-800 text-white',

@@ -231,7 +231,7 @@ export default function CalendrierExamens() {
       )}
 
       <p className="text-[10px] text-slate-400 text-center border-t border-slate-200 pt-3 mt-8">
-        SUIVI PÉDAGOGIQUE — UnCHK · Document généré le {new Date().toLocaleDateString('fr-FR')} par {user?.prenom} {user?.nom} · Sous réserve de modifications publiées sur le portail
+        SUIVI PÉDAGOGIQUE — UnCHK · Document généré le {new Date().toLocaleDateString('fr-FR')} par {user?.prenom} {user?.nom} · Sous réserve de modifications publiées sur la plateforme
       </p>
     </div>
   );

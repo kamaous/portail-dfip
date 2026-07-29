@@ -62,7 +62,7 @@ module.exports = {
     SCOLARITE: 'Scolarité',
     ENSEIGNANT: 'Enseignant',
     ETUDIANT: 'Étudiant',
-    ADMIN_PORTAIL: 'Administrateur du Portail'
+    ADMIN_PORTAIL: 'Administrateur de la Plateforme'
   },
 
   // Rôles à visibilité restreinte à leur pôle (voient uniquement ce qui les concerne).
