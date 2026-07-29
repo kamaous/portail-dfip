@@ -38,8 +38,8 @@ export default function Login() {
         <div className="w-full max-w-md">
           {/* En-tête */}
           <div className="text-center mb-8">
-            <img src="/dfip-icon.svg" alt="Portail DFIP" className="w-20 h-20 rounded-2xl mx-auto mb-5 shadow-lg shadow-blue-900/20" />
-            <h1 className="text-slate-800 text-3xl font-bold">Portail DFIP</h1>
+            <img src="/dfip-icon.svg" alt="SUIVI PÉDAGOGIQUE" className="w-20 h-20 rounded-2xl mx-auto mb-5 shadow-lg shadow-blue-900/20" />
+            <h1 className="text-slate-800 text-3xl font-bold">SUIVI PÉDAGOGIQUE</h1>
             <p className="text-slate-600 text-sm mt-2 font-medium">
               Direction de la Formation et de l'Ingénierie Pédagogique
             </p>
@@ -118,7 +118,7 @@ export default function Login() {
           </div>
 
           <p className="text-center text-slate-400 text-xs mt-6">
-            © {new Date().getFullYear()} UnCHK — Portail DFIP
+            © {new Date().getFullYear()} UnCHK — SUIVI PÉDAGOGIQUE
           </p>
         </div>
       </div>

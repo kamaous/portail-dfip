@@ -74,5 +74,5 @@ setInterval(() => {
 app.get('/api/health', (req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.listen(PORT, () => {
-  console.log(`✅ Portail DFIP Backend démarré sur http://localhost:${PORT}`);
+  console.log(`✅ SUIVI PÉDAGOGIQUE Backend démarré sur http://localhost:${PORT}`);
 });

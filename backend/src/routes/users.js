@@ -172,7 +172,7 @@ router.post('/:id/reset-password', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   sendEmail({
     to: user.email,
-    subject: '[Portail DFIP] Réinitialisation de votre mot de passe',
+    subject: '[SUIVI PÉDAGOGIQUE] Réinitialisation de votre mot de passe',
     html: `<p>Bonjour ${user.prenom} ${user.nom},</p><p>Votre mot de passe a été réinitialisé. Nouveau mot de passe temporaire : <strong>${tmpPassword}</strong></p><p>Veuillez le changer à votre prochaine connexion.</p>`
   });
 

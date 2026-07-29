@@ -51,7 +51,7 @@ router.post('/', auth, requireRole('RESPONSABLE_FORMATION', 'RESPONSABLE_PEDAGOG
     ins.run(rp.id, '⚠️ Signalement à traiter', `${req.user.prenom} ${req.user.nom} : « ${objet} » (${cible.formation_nom || cible.pole_code || ''})`, 'SIGNALEMENT', lien);
     sendEmail({
       to: rp.email,
-      subject: `[Portail DFIP] Signalement à traiter : ${objet}`,
+      subject: `[SUIVI PÉDAGOGIQUE] Signalement à traiter : ${objet}`,
       html: emailWrapper(rp, 'Signalement de non-conformité', `
         <p><strong>${req.user.prenom} ${req.user.nom}</strong> (Responsable de formation) signale :</p>
         <div style="background:#fff7ed;border:1px solid #fed7aa;padding:14px;border-radius:8px;margin:12px 0">
@@ -121,7 +121,7 @@ router.post('/:id/traiter', auth, requireRole('RESPONSABLE_PEDAGOGIQUE', 'DIRECT
         s.cible_type === 'TUTORAT' ? '/tutorat' : '/evaluations');
     sendEmail({
       to: rf.email,
-      subject: `[Portail DFIP] Votre signalement a été traité : ${s.objet}`,
+      subject: `[SUIVI PÉDAGOGIQUE] Votre signalement a été traité : ${s.objet}`,
       html: emailWrapper(rf, 'Signalement traité', `
         <p>Votre signalement <strong>« ${s.objet} »</strong> a été traité par ${req.user.prenom} ${req.user.nom} :</p>
         <div style="background:#ecfdf5;border:1px solid #a7f3d0;padding:14px;border-radius:8px;margin:12px 0">

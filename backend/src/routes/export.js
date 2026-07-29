@@ -55,7 +55,7 @@ router.get('/dashboard', auth, requireRole(...EXPORT_ROLES), async (req, res) =>
   const annee = annee_id ? db.prepare('SELECT * FROM annees_academiques WHERE id = ?').get(annee_id) : null;
 
   const wb = new ExcelJS.Workbook();
-  wb.creator = 'Portail DFIP - UnCHK';
+  wb.creator = 'SUIVI PÉDAGOGIQUE - UnCHK';
   wb.created = new Date();
 
   /* ===== 1. Synthèse ===== */
@@ -78,7 +78,7 @@ router.get('/dashboard', auth, requireRole(...EXPORT_ROLES), async (req, res) =>
   ];
   const wsSyn = wb.addWorksheet('Synthèse');
   wsSyn.mergeCells('A1:B1');
-  wsSyn.getCell('A1').value = `PORTAIL DFE — Statistiques de la Direction (${annee?.libelle || 'toutes années'})`;
+  wsSyn.getCell('A1').value = `SUIVI PÉDAGOGIQUE — Statistiques de la Direction (${annee?.libelle || 'toutes années'})`;
   wsSyn.getCell('A1').font = { bold: true, size: 14, color: { argb: NAVY } };
   wsSyn.getCell('A2').value = `Généré le ${new Date().toLocaleString('fr-FR')}`;
   wsSyn.getCell('A2').font = { italic: true, size: 9, color: { argb: 'FF64748B' } };

@@ -330,7 +330,7 @@ router.post('/:id/resoudre', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (r
       .run(signalePar.id, '✅ Incident résolu — décision du DFIP', `"${inc.titre}" : ${LBL[decision]}. ${resolution.trim()}`, 'SUCCES', '/incidents');
     sendEmail({
       to: signalePar.email,
-      subject: '[Portail DFIP] Incident résolu — décision du Directeur',
+      subject: '[SUIVI PÉDAGOGIQUE] Incident résolu — décision du Directeur',
       html: `<p>L'incident "<strong>${inc.titre}</strong>" a été résolu.</p><p><strong>Décision : ${LBL[decision]}</strong></p><p>${resolution.trim()}</p>${actions.length ? `<p>Effets appliqués : ${actions.join(' ; ')}</p>` : ''}`,
     });
   }
@@ -367,7 +367,7 @@ router.put('/:id/statut', auth, (req, res) => {
         .run(signalePar.id, '✅ Incident résolu', `"${incident.titre}" a été résolu.`, 'SUCCES');
       sendEmail({
         to: signalePar.email,
-        subject: '[Portail DFIP] Incident résolu',
+        subject: '[SUIVI PÉDAGOGIQUE] Incident résolu',
         html: `<p>L'incident "<strong>${incident.titre}</strong>" a été résolu.</p>${resolution ? `<p>Résolution : ${resolution}</p>` : ''}`
       });
     }

@@ -72,7 +72,7 @@ export default function Layout({ children }) {
             <img src="/dfip-icon.svg" alt="DFIP" className="w-10 h-10 rounded-xl shrink-0 shadow-md shadow-blue-900/20" />
             {open && (
               <div className="min-w-0">
-                <p className="text-slate-800 font-bold text-sm truncate">Portail DFIP</p>
+                <p className="text-slate-800 font-bold text-sm truncate">SUIVI PÉDAGOGIQUE</p>
                 <p className="text-slate-400 text-xs truncate">UnCHK</p>
               </div>
             )}

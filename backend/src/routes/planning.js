@@ -12,7 +12,7 @@ function notifierDirecteurs(db, titre, message) {
   const ins = db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)');
   dirs.forEach(d => {
     ins.run(d.id, titre, message, 'PLANNING', '/planning');
-    sendEmail({ to: d.email, subject: `[Portail DFIP] ${titre}`, html: emailWrapper(d, titre, `<p>${message}</p>`) });
+    sendEmail({ to: d.email, subject: `[SUIVI PÉDAGOGIQUE] ${titre}`, html: emailWrapper(d, titre, `<p>${message}</p>`) });
   });
 }
 
@@ -21,7 +21,7 @@ function notifierUser(db, userId, titre, message) {
   if (!u) return;
   db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)')
     .run(u.id, titre, message, 'PLANNING', '/planning');
-  sendEmail({ to: u.email, subject: `[Portail DFIP] ${titre}`, html: emailWrapper(u, titre, `<p>${message}</p>`) });
+  sendEmail({ to: u.email, subject: `[SUIVI PÉDAGOGIQUE] ${titre}`, html: emailWrapper(u, titre, `<p>${message}</p>`) });
 }
 
 const SEGMENTS = ['RECTORAT', 'DFIP_DES', 'PSEJA', 'PSTN', 'PLSHE'];

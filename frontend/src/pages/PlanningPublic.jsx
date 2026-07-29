@@ -99,7 +99,7 @@ export default function PlanningPublic() {
       <header className="bg-white border-b border-slate-200 px-6 py-3 flex items-center gap-3 flex-wrap">
         <img src="/dfip-icon.svg" alt="DFIP" className="w-10 h-10 rounded-xl" />
         <div className="min-w-0">
-          <h1 className="text-slate-800 font-bold">Planning annuel — Portail DFIP</h1>
+          <h1 className="text-slate-800 font-bold">Planning annuel — SUIVI PÉDAGOGIQUE</h1>
           <p className="text-slate-400 text-xs">Université numérique Cheikh Hamidou KANE - UnCHK · Consultation publique</p>
         </div>
         <div className="ml-auto flex items-center gap-2 flex-wrap">
@@ -215,7 +215,7 @@ export default function PlanningPublic() {
         )}
         <p className="text-xs text-slate-400 text-center">
           🔍 Zoom : rapprochez les poignées de la barre ci-dessus ou glissez le bloc pour faire défiler · barre de droite = zoom vertical.
-          <br />Consultation publique en lecture seule — © {new Date().getFullYear()} UnCHK, Portail DFIP
+          <br />Consultation publique en lecture seule — © {new Date().getFullYear()} UnCHK, SUIVI PÉDAGOGIQUE
         </p>
       </main>
     </div>

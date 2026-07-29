@@ -36,7 +36,7 @@ function notifierConcernes({ pole_id, titre, message, type = 'INFO', lien = null
     insNotif.run(u.id, titre, message, type, lien);
     sendEmail({
       to: u.email,
-      subject: `[Portail DFIP] ${titre}`,
+      subject: `[SUIVI PÉDAGOGIQUE] ${titre}`,
       html: emailWrapper(u, titre, htmlBody || `<p>${message}</p>`),
     });
   }
@@ -47,7 +47,7 @@ function emailWrapper(user, titre, inner) {
   return `
     <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
       <div style="background:#1e3a5f;padding:20px;text-align:center">
-        <h1 style="color:#fff;margin:0;font-size:18px">Portail DFIP - UnCHK</h1>
+        <h1 style="color:#fff;margin:0;font-size:18px">SUIVI PÉDAGOGIQUE - UnCHK</h1>
       </div>
       <div style="padding:28px">
         <h2 style="color:#1e3a5f;font-size:18px">${titre}</h2>
@@ -56,7 +56,7 @@ function emailWrapper(user, titre, inner) {
         <p style="color:#6b7280;font-size:13px;margin-top:24px">Connectez-vous au portail pour plus de détails.</p>
       </div>
       <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
-        Université numérique Cheikh Hamidou KANE - UnCHK — Portail DFIP
+        Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
       </div>
     </div>`;
 }

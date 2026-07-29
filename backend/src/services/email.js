@@ -18,16 +18,16 @@ async function sendEmail({ to, subject, html }) {
 
 const templates = {
   bienvenue: (user, password) => ({
-    subject: 'Bienvenue sur le Portail DFIP - UnCHK',
+    subject: 'Bienvenue sur SUIVI PÉDAGOGIQUE - UnCHK',
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <div style="background:#1e3a5f;padding:24px;text-align:center">
-          <h1 style="color:#fff;margin:0;font-size:20px">Portail DFIP - UnCHK</h1>
+          <h1 style="color:#fff;margin:0;font-size:20px">SUIVI PÉDAGOGIQUE - UnCHK</h1>
           <p style="color:#93c5fd;margin:4px 0 0">Direction de la Formation et de l'Ingénierie Pédagogique</p>
         </div>
         <div style="padding:32px">
           <h2 style="color:#1e3a5f">Bienvenue, ${user.prenom} ${user.nom} !</h2>
-          <p>Votre compte a été créé sur le <strong>Portail DFIP de l'Université numérique Cheikh Hamidou KANE - UnCHK</strong>.</p>
+          <p>Votre compte a été créé sur le <strong>SUIVI PÉDAGOGIQUE de l'Université numérique Cheikh Hamidou KANE - UnCHK</strong>.</p>
           <div style="background:#f0f9ff;border-left:4px solid #1e3a5f;padding:16px;margin:20px 0;border-radius:4px">
             <p style="margin:0"><strong>Email :</strong> ${user.email}</p>
             <p style="margin:8px 0 0"><strong>Mot de passe temporaire :</strong> <code style="background:#e5e7eb;padding:2px 6px;border-radius:3px">${password}</code></p>
@@ -36,18 +36,18 @@ const templates = {
           <p style="color:#dc2626;font-size:14px">⚠️ Veuillez changer votre mot de passe lors de votre première connexion.</p>
         </div>
         <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
-          Université numérique Cheikh Hamidou KANE - UnCHK — Portail DFIP
+          Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
         </div>
       </div>
     `
   }),
 
   nouvelleTache: (assigne, assignePar, tache) => ({
-    subject: `[Portail DFIP] Nouvelle tâche assignée : ${tache.titre}`,
+    subject: `[SUIVI PÉDAGOGIQUE] Nouvelle tâche assignée : ${tache.titre}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <div style="background:#1e3a5f;padding:20px;text-align:center">
-          <h1 style="color:#fff;margin:0;font-size:18px">Portail DFIP - UnCHK</h1>
+          <h1 style="color:#fff;margin:0;font-size:18px">SUIVI PÉDAGOGIQUE - UnCHK</h1>
         </div>
         <div style="padding:28px">
           <h2 style="color:#1e3a5f">Nouvelle tâche assignée</h2>
@@ -62,14 +62,14 @@ const templates = {
           <p>Connectez-vous au portail pour consulter et gérer cette tâche.</p>
         </div>
         <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
-          Université numérique Cheikh Hamidou KANE - UnCHK — Portail DFIP
+          Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
         </div>
       </div>
     `
   }),
 
   tacheCompletee: (assignePar, assigne, tache) => ({
-    subject: `[Portail DFIP] Tâche complétée : ${tache.titre}`,
+    subject: `[SUIVI PÉDAGOGIQUE] Tâche complétée : ${tache.titre}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <div style="background:#065f46;padding:20px;text-align:center">
@@ -80,14 +80,14 @@ const templates = {
           <p><strong>${assigne.prenom} ${assigne.nom}</strong> a marqué la tâche <strong>"${tache.titre}"</strong> comme complétée.</p>
         </div>
         <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
-          Université numérique Cheikh Hamidou KANE - UnCHK — Portail DFIP
+          Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
         </div>
       </div>
     `
   }),
 
   nouvelIncident: (assigne, signalePar, incident) => ({
-    subject: `[Portail DFIP] 🚨 Incident signalé : ${incident.titre}`,
+    subject: `[SUIVI PÉDAGOGIQUE] 🚨 Incident signalé : ${incident.titre}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <div style="background:#dc2626;padding:20px;text-align:center">
@@ -105,14 +105,14 @@ const templates = {
           </div>
         </div>
         <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
-          Université numérique Cheikh Hamidou KANE - UnCHK — Portail DFIP
+          Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
         </div>
       </div>
     `
   }),
 
   calendrierUploade: (directeur, pole, annee) => ({
-    subject: `[Portail DFIP] Calendrier uploadé — ${pole} / ${annee}`,
+    subject: `[SUIVI PÉDAGOGIQUE] Calendrier uploadé — ${pole} / ${annee}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
         <div style="background:#1e3a5f;padding:20px;text-align:center">
@@ -123,7 +123,7 @@ const templates = {
           <p>Connectez-vous pour valider ce calendrier.</p>
         </div>
         <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
-          Université numérique Cheikh Hamidou KANE - UnCHK — Portail DFIP
+          Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
         </div>
       </div>
     `

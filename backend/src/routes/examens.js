@@ -73,7 +73,7 @@ router.post('/', auth, requireRole('DIRECTEUR', 'CHEF_SERVICE', 'ADMIN_PORTAIL',
         .run(surveillant.id, 'Surveillance assignée', `Vous êtes assigné(e) comme surveillant(e) pour : ${libelle}`, 'EXAMEN');
       sendEmail({
         to: surveillant.email,
-        subject: '[Portail DFIP] Surveillance d\'examen assignée',
+        subject: '[SUIVI PÉDAGOGIQUE] Surveillance d\'examen assignée',
         html: `<p>Bonjour ${surveillant.prenom} ${surveillant.nom},</p><p>Vous avez été assigné(e) comme surveillant(e) pour l'examen : <strong>${libelle}</strong>.</p>${date_debut ? `<p>Date : ${date_debut}</p>` : ''}`
       });
     }

@@ -101,7 +101,7 @@ router.post('/', auth, (req, res) => {
     insNotif.run(u.id, '📅 Réunion programmée', `${req.user.prenom} ${req.user.nom} : "${titre}" le ${date_reunion} à ${heure}`, 'REUNION', '/reunions');
     sendEmail({
       to: u.email,
-      subject: `[Portail DFIP] Réunion : ${titre} — ${date_reunion} à ${heure}`,
+      subject: `[SUIVI PÉDAGOGIQUE] Réunion : ${titre} — ${date_reunion} à ${heure}`,
       html: emailWrapper(u, 'Invitation à une réunion', `
         <p><strong>${req.user.prenom} ${req.user.nom}</strong> vous invite à une réunion :</p>
         <div style="background:#f0f9ff;border:1px solid #bfdbfe;padding:16px;border-radius:8px;margin:16px 0">
@@ -151,7 +151,7 @@ router.put('/:id', auth, (req, res) => {
       const u = db.prepare('SELECT * FROM users WHERE id = ? AND actif = 1').get(uid);
       if (!u || u.id === req.user.id) return;
       insNotif.run(u.id, statut === 'ANNULEE' ? '❌ Réunion annulée' : '🔁 Réunion reportée', msg, 'REUNION', '/reunions');
-      sendEmail({ to: u.email, subject: `[Portail DFIP] ${statut === 'ANNULEE' ? 'Réunion annulée' : 'Réunion reportée'} : ${prev.titre}`, html: emailWrapper(u, statut === 'ANNULEE' ? 'Réunion annulée' : 'Réunion reportée', `<p>${msg}</p>`) });
+      sendEmail({ to: u.email, subject: `[SUIVI PÉDAGOGIQUE] ${statut === 'ANNULEE' ? 'Réunion annulée' : 'Réunion reportée'} : ${prev.titre}`, html: emailWrapper(u, statut === 'ANNULEE' ? 'Réunion annulée' : 'Réunion reportée', `<p>${msg}</p>`) });
     });
   }
 

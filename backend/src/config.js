@@ -14,7 +14,7 @@ module.exports = {
     secure: false,
     user: process.env.SMTP_USER || secrets.SMTP_USER || 'ousmane.kama@unchk.edu.sn',
     pass: process.env.SMTP_PASS || secrets.SMTP_PASS || '',
-    from: '"Portail DFIP - UnCHK" <ousmane.kama@unchk.edu.sn>'
+    from: '"SUIVI PÉDAGOGIQUE - UnCHK" <ousmane.kama@unchk.edu.sn>'
   },
 
   UPLOAD_DIR: require('path').join(__dirname, '../uploads'),

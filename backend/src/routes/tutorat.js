@@ -181,7 +181,7 @@ router.post('/', auth, creationAutorisee, (req, res) => {
       `${req.user.prenom} ${req.user.nom} a soumis une fiche tutorat : ${formation?.nom || ''} (${b.niveau} ${b.semestre_code}).`);
     chefs.forEach(c => sendEmail({
       to: c.email,
-      subject: '[Portail DFIP] Fiche tutorat à valider',
+      subject: '[SUIVI PÉDAGOGIQUE] Fiche tutorat à valider',
       html: `<p>Une nouvelle fiche de suivi tutorat attend votre validation : <strong>${formation?.nom || ''}</strong> (${b.niveau} ${b.semestre_code}), du ${b.date_debut} au ${b.date_fin}.</p>`,
     }));
   }
@@ -213,7 +213,7 @@ router.post('/:id/valider', auth, requireRole(...INDIC_ROLES), (req, res) => {
       : `Votre fiche tutorat ${formation?.nom || ''} (${t.niveau} ${t.semestre_code}) a été rejetée.`;
     db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)')
       .run(createur.id, decision === 'VALIDEE' ? '✅ Fiche tutorat validée' : '❌ Fiche tutorat rejetée', msg, 'TUTORAT', '/tutorat');
-    sendEmail({ to: createur.email, subject: `[Portail DFIP] Fiche tutorat ${decision === 'VALIDEE' ? 'validée' : 'rejetée'}`, html: `<p>${msg}</p>` });
+    sendEmail({ to: createur.email, subject: `[SUIVI PÉDAGOGIQUE] Fiche tutorat ${decision === 'VALIDEE' ? 'validée' : 'rejetée'}`, html: `<p>${msg}</p>` });
   }
 
   res.json(db.prepare('SELECT * FROM tutorat WHERE id = ?').get(req.params.id));
@@ -289,7 +289,7 @@ router.put('/:id', auth, (req, res) => {
     for (const c of chefs) {
       const msg = `${req.user.prenom} ${req.user.nom} a modifié la fiche tutorat ${filiere?.nom || ''} (${prev.niveau || ''} ${prev.semestre_code || ''}) : elle repasse en attente de votre validation.`;
       ins.run(c.id, '📝 Fiche tutorat modifiée — à revalider', msg, 'TUTORAT', '/tutorat');
-      sendEmail({ to: c.email, subject: '[Portail DFIP] Fiche tutorat modifiée — à revalider', html: `<p>${msg}</p>` });
+      sendEmail({ to: c.email, subject: '[SUIVI PÉDAGOGIQUE] Fiche tutorat modifiée — à revalider', html: `<p>${msg}</p>` });
     }
   }
 

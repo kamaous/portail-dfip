@@ -1,4 +1,4 @@
-# Portail DFIP — UnCHK
+# SUIVI PÉDAGOGIQUE — UnCHK
 
 Portail de la **Direction de la Formation et de l'Ingénierie Pédagogique** de
 l'**Université numérique Cheikh Hamidou KANE - UnCHK**.

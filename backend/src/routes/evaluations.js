@@ -402,7 +402,7 @@ router.put('/:id', auth, (req, res) => {
     for (const rp of rps) {
       const msg = `Les évaluations « ${refEval} » sont terminées : vous pouvez procéder à la délibération (Pas encore / Prévue le / Effective).`;
       ins.run(rp.id, '⚖ Évaluations terminées — délibération à mener', msg, 'EVALUATION', '/evaluations');
-      sendEmail({ to: rp.email, subject: '[Portail DFIP] Évaluations terminées — délibération', html: emailWrapper(rp, 'Délibération à mener', `<p>${msg}</p>`) });
+      sendEmail({ to: rp.email, subject: '[SUIVI PÉDAGOGIQUE] Évaluations terminées — délibération', html: emailWrapper(rp, 'Délibération à mener', `<p>${msg}</p>`) });
     }
   }
 
@@ -413,7 +413,7 @@ router.put('/:id', auth, (req, res) => {
     for (const c of chefs) {
       const msg = `${req.user.prenom} ${req.user.nom} (Responsable pédagogique) a modifié les dates de « ${refEval} » : ${date_demarrage ?? prev.date_demarrage} → ${date_fin_prevue ?? prev.date_fin_prevue}. Merci de vérifier et valider ce changement.`;
       ins.run(c.id, '📝 Évaluation modifiée — à valider', msg, 'EVALUATION', '/evaluations');
-      sendEmail({ to: c.email, subject: '[Portail DFIP] Évaluation modifiée par le Responsable pédagogique', html: emailWrapper(c, 'Modification à valider', `<p>${msg}</p>`) });
+      sendEmail({ to: c.email, subject: '[SUIVI PÉDAGOGIQUE] Évaluation modifiée par le Responsable pédagogique', html: emailWrapper(c, 'Modification à valider', `<p>${msg}</p>`) });
     }
   }
 

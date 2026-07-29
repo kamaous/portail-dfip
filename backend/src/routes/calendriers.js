@@ -211,7 +211,7 @@ router.post('/:id/valider', auth, requireRole('DIRECTEUR', 'CHEF_SERVICE', 'ADMI
       .run(uploader.id, `Calendrier ${statut === 'REJETE' ? 'rejeté' : 'validé'}`, msg, statut === 'REJETE' ? 'ERREUR' : 'SUCCES');
     sendEmail({
       to: uploader.email,
-      subject: `[Portail DFIP] Calendrier ${statut === 'REJETE' ? 'rejeté' : 'validé'}`,
+      subject: `[SUIVI PÉDAGOGIQUE] Calendrier ${statut === 'REJETE' ? 'rejeté' : 'validé'}`,
       html: `<p>${msg}</p>`
     });
   }

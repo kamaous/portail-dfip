@@ -107,7 +107,7 @@ export default function Rapport() {
       <div className="flex items-center gap-4 border-b-4 border-[#1e3a5f] pb-4 mb-5">
         <img src="/dfip-icon.svg" alt="DFIP" className="w-14 h-14 rounded-xl" />
         <div className="flex-1">
-          <h1 className="text-xl font-bold text-[#1e3a5f]">Rapport d'activité — Portail DFIP</h1>
+          <h1 className="text-xl font-bold text-[#1e3a5f]">Rapport d'activité — SUIVI PÉDAGOGIQUE</h1>
           <p className="text-xs text-slate-500">Direction de la Formation et de l'Ingénierie Pédagogique · Université numérique Cheikh Hamidou KANE (UnCHK)</p>
         </div>
         <div className="text-right text-xs text-slate-500">
@@ -220,7 +220,7 @@ export default function Rapport() {
       </table>
 
       <p className="text-[10px] text-slate-400 text-center border-t border-slate-200 pt-3">
-        Portail DFIP — UnCHK · Rapport généré automatiquement le {new Date().toLocaleString('fr-FR')} · Période {du} → {au}
+        SUIVI PÉDAGOGIQUE — UnCHK · Rapport généré automatiquement le {new Date().toLocaleString('fr-FR')} · Période {du} → {au}
       </p>
     </div>
   );
