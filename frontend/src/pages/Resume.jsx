@@ -234,11 +234,11 @@ export default function Resume() {
             <table className="w-full text-sm min-w-[760px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
-                  <th className="text-left px-4 py-2.5 table-header">État</th>
+                  <th className="text-left px-4 py-2.5 table-header">Programme</th>
                   <th className="text-left px-4 py-2.5 table-header">Semestre</th>
                   <th className="text-left px-4 py-2.5 table-header">Date de début</th>
                   <th className="text-left px-4 py-2.5 table-header">Date de fin</th>
-                  <th className="text-left px-4 py-2.5 table-header">Programme</th>
+                  <th className="text-left px-4 py-2.5 table-header">État</th>
                   <th className="text-left px-4 py-2.5 table-header w-44">Progression</th>
                 </tr>
               </thead>
@@ -267,18 +267,18 @@ export default function Resume() {
                       return (
                         <tr key={x.id} className="border-b border-slate-50 hover:bg-slate-50/60">
                           <td className="px-4 py-2">
-                            <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
-                            {voletEval && x.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
-                          </td>
-                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(x)}</td>
-                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{debut || '—'}</td>
-                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{fin || '—'}</td>
-                          <td className="px-4 py-2">
                             <span className="font-medium text-slate-800" title={x.formation_nom || ''}>{nomProgramme(x)}</span>
                             {x.promotion_code && <span className="text-xs text-slate-400"> · {x.promotion_code}</span>}
                             {voletEval && <span className="text-xs text-slate-400"> · S{x.session_num} {SESSION_LABEL[x.session_num]}</span>}
                             {voletEval && x.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
                             {x.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                          </td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(x)}</td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{debut || '—'}</td>
+                          <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{fin || '—'}</td>
+                          <td className="px-4 py-2">
+                            <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
+                            {voletEval && x.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
                           </td>
                           <td className="px-4 py-2"><Barre pct={voletEval ? progEval(x) : progTut(x)} /></td>
                         </tr>
