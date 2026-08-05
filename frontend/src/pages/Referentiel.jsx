@@ -25,6 +25,7 @@ export default function Referentiel() {
   const [poles, setPoles] = useState([]);
   const [promotions, setPromotions] = useState([]);
   const [demandes, setDemandes] = useState([]);
+  const [contrainte, setContrainte] = useState(null); // option « contrainte des plages » (Directeur DES)
   const [loading, setLoading] = useState(true);
   const [modalFormation, setModalFormation] = useState(null); // { pole, formation? }
   const [modalPole, setModalPole] = useState(null);           // { pole? } — création/édition
@@ -35,10 +36,21 @@ export default function Referentiel() {
       api.get('/poles').catch(() => ({ data: [] })),
       api.get('/poles/promotions').catch(() => ({ data: [] })),
       api.get('/referentiel/suppressions').catch(() => ({ data: [] })),
-    ]).then(([p, pr, d]) => { setPoles(p.data); setPromotions(pr.data); setDemandes(d.data); })
+      api.get('/parametres/contrainte-plages').catch(() => ({ data: { active: null } })),
+    ]).then(([p, pr, d, c]) => { setPoles(p.data); setPromotions(pr.data); setDemandes(d.data); setContrainte(c.data.active); })
       .finally(() => setLoading(false));
   }
   useEffect(load, []);
+
+  async function basculerContrainte() {
+    try {
+      const r = await api.put('/parametres/contrainte-plages', { active: !contrainte });
+      setContrainte(r.data.active);
+      toast.success(r.data.active
+        ? 'Contrainte des plages ACTIVÉE : les fiches et évaluations devront s\'inscrire dans les plages du Planning annuel'
+        : 'Contrainte des plages désactivée : les plages redeviennent indicatives');
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
 
   const enAttente = useMemo(() => demandes.filter(d => d.statut === 'EN_ATTENTE'), [demandes]);
   const enAttenteRef = (type, id) => enAttente.some(d => d.type === type && d.ref_id === id);
@@ -75,6 +87,35 @@ export default function Referentiel() {
           <button onClick={() => setModalPole({})} className="btn-primary flex items-center gap-2"><Plus size={15} /> Pôle</button>
         )}
       </div>
+
+      {/* Option du Directeur DES : contrainte des plages du Planning annuel */}
+      {contrainte !== null && (
+        <div className={`card border-2 ${contrainte ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-2xl">{contrainte ? '🔒' : '🔓'}</span>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold text-slate-800">Contrainte des plages du Planning annuel</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {contrainte
+                  ? 'ACTIVÉE — les fiches de tutorat et les évaluations doivent s\'inscrire dans les plages du Planning annuel (une plage doit exister pour le pôle). S\'applique à tous les rôles.'
+                  : 'Désactivée — les plages du Planning annuel sont indicatives : fiches de tutorat et évaluations se créent librement.'}
+              </p>
+            </div>
+            {estDES ? (
+              <button onClick={basculerContrainte}
+                className={`shrink-0 px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all ${contrainte
+                  ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+                  : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'}`}>
+                {contrainte ? 'Désactiver la contrainte' : 'Activer la contrainte'}
+              </button>
+            ) : (
+              <span className={`badge shrink-0 ${contrainte ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                {contrainte ? 'Active' : 'Inactive'} · gérée par le Directeur DES
+              </span>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Demandes de suppression (validation Vice-Recteur) */}
       {demandes.length > 0 && (

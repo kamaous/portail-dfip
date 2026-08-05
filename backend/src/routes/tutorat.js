@@ -41,13 +41,20 @@ function plagesTutorat(db, annee_id, poleId) {
     ORDER BY date_debut
   `).all(annee_id, POLE_SEGMENT_T[pole.code] || '—');
 }
-// CONTRAINTE DES PLAGES DÉSACTIVÉE (05/08/2026, demande du Directeur) :
-// les fiches de tutorat peuvent être créées et datées librement, avec ou sans
-// plage TUTORAT au Planning annuel. Les plages restent affichées à titre
-// INDICATIF dans l'interface. Pour réactiver la règle : restaurer le corps
-// de cette fonction (contrôle existence + inclusion des dates).
-function controlePlageTutorat() {
-  return null; // plus aucun blocage lié aux plages
+// CONTRAINTE DES PLAGES = OPTION pilotée par le DIRECTEUR DES (paramètre
+// contrainte_plages, page Référentiel). Activée : une plage TUTORAT doit exister
+// pour le pôle et les dates doivent s'y inscrire. Désactivée : plages indicatives.
+const { getParam } = require('./parametres');
+function controlePlageTutorat(db, { annee_id, pole_id, date_debut, date_fin }) {
+  if (getParam(db, 'contrainte_plages') !== '1') return null; // option désactivée par le DES
+  const plages = plagesTutorat(db, annee_id, pole_id);
+  if (plages.length === 0) {
+    return "Contrainte des plages active : aucune plage de tutorat n'est définie au Planning annuel pour ce pôle. Créez d'abord l'activité (type Tutorat), ou demandez au Directeur DES de désactiver la contrainte.";
+  }
+  const ok = plages.some(p => date_debut >= p.date_debut && (date_fin || date_debut) <= p.date_fin);
+  if (ok) return null;
+  const liste = plages.map(p => `${p.date_debut} → ${p.date_fin}`).join(' ; ');
+  return `Contrainte des plages active : le tutorat doit se tenir dans les plages du Planning annuel (${liste}).`;
 }
 
 function notifierRole(db, role, titre, message) {
@@ -134,14 +141,28 @@ const FIELDS = ['plateforme_cours', 'cours', 'enrolement_tuteurs', 'enrolement_e
   'date_demarree_le', 'date_terminee_le', 'observations'];
 
 // POST /api/tutorat — création par un Responsable de formation (→ SOUMISE au Chef div. Technopédagogie)
+// La fiche se crée avec DATE DE DÉBUT + DURÉE EN SEMAINES : la date de fin est
+// calculée (début + semaines × 7 − 1 jour). date_fin explicite acceptée en compat.
 router.post('/', auth, creationAutorisee, (req, res) => {
   const b = req.body;
   if (!b.annee_id) return res.status(400).json({ error: 'annee_id requis' });
   if (!b.pole_id || !b.promotion_id || !b.formation_id || !b.niveau || !b.semestre_code) {
     return res.status(400).json({ error: 'Pôle, promotion, formation, niveau et semestre requis' });
   }
-  if (!b.date_debut || !b.date_fin) {
-    return res.status(400).json({ error: 'Les dates de début et de fin du tutorat sont requises' });
+  if (!b.date_debut) {
+    return res.status(400).json({ error: 'La date de début du tutorat est requise' });
+  }
+  if (b.duree_semaines !== undefined && b.duree_semaines !== null && b.duree_semaines !== '') {
+    const sem = Number(b.duree_semaines);
+    if (!Number.isInteger(sem) || sem < 1 || sem > 52) {
+      return res.status(400).json({ error: 'Durée invalide : entre 1 et 52 semaines' });
+    }
+    const d = new Date(`${b.date_debut}T00:00:00`);
+    d.setDate(d.getDate() + sem * 7 - 1);
+    b.date_fin = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  }
+  if (!b.date_fin) {
+    return res.status(400).json({ error: 'La durée (en semaines) ou la date de fin est requise' });
   }
   const db = getDb();
 

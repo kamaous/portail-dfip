@@ -305,10 +305,24 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
-    date_debut: defaultDebut || '', date_fin: '',
+    date_debut: defaultDebut || '', duree_semaines: '',
   });
   const [loading, setLoading] = useState(false);
-  const [plages, setPlages] = useState(null); // plages du Planning annuel : INDICATIVES (aucun blocage)
+  const [plages, setPlages] = useState(null);
+  // Contrainte des plages : option activée/désactivée par le Directeur DES
+  const [contrainte, setContrainte] = useState(false);
+  useEffect(() => {
+    api.get('/parametres/contrainte-plages').then(r => setContrainte(!!r.data.active)).catch(() => {});
+  }, []);
+
+  // Date de fin CALCULÉE : début + durée × 7 − 1 jour
+  const finCalculee = (() => {
+    const sem = parseInt(form.duree_semaines);
+    if (!form.date_debut || !sem || sem < 1) return '';
+    const d = new Date(`${form.date_debut}T00:00:00`);
+    d.setDate(d.getDate() + sem * 7 - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
 
   // Plages TUTORAT du Planning annuel pour le pôle choisi (cadrage des dates)
   useEffect(() => {
@@ -324,10 +338,12 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
     e.preventDefault();
     if (!form.annee_id) return toast.error('Sélectionnez une année');
     if (!form.semestre_code) return toast.error('Sélectionnez un semestre');
-    if (!form.date_debut || !form.date_fin) return toast.error('Les dates de début et de fin sont requises');
+    if (!form.date_debut) return toast.error('La date de début est requise');
+    const sem = parseInt(form.duree_semaines);
+    if (!sem || sem < 1 || sem > 52) return toast.error('Indiquez la durée en semaines (1 à 52)');
     setLoading(true);
     try {
-      await api.post('/tutorat', form);
+      await api.post('/tutorat', { ...form, duree_semaines: sem });
       toast.success(estRF
         ? 'Fiche soumise au Chef de division Technopédagogie pour validation'
         : 'Fiche de suivi créée');
@@ -360,19 +376,38 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
           </div>
           <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
 
-          {/* Plages TUTORAT du planning annuel — repère indicatif, sans blocage */}
+          {/* Plages TUTORAT du planning annuel — bloquantes ou indicatives selon l'option du DES */}
           {form.pole_id && plages !== null && plages.length > 0 && (
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
-              📅 <strong>Plages tutorat du Planning annuel (à titre indicatif) :</strong>{' '}
+            <div className={`border rounded-xl p-3 text-xs ${contrainte ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
+              📅 <strong>Plages tutorat du Planning annuel{contrainte ? '' : ' (à titre indicatif)'} :</strong>{' '}
               {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
+              {contrainte && <><br />🔒 Contrainte activée par le Directeur DES : les dates doivent s'inscrire dans ces plages.</>}
+            </div>
+          )}
+          {contrainte && form.pole_id && plages !== null && plages.length === 0 && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-700">
+              🔒 <strong>Contrainte des plages activée</strong> (Directeur DES) et aucune plage de tutorat n'existe pour ce pôle :
+              la création sera refusée tant qu'une activité Tutorat n'est pas posée au Planning annuel.
             </div>
           )}
 
-          <div>
-            <label className="text-sm font-medium text-slate-700 block mb-1">Période du tutorat (début → fin) *</label>
-            <PlageDates debut={form.date_debut} fin={form.date_fin}
-              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_debut: debut, date_fin: fin }))} />
+          {/* Date de début + durée en semaines → date de fin calculée automatiquement */}
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Date de début *</label>
+              <input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} required />
+            </div>
+            <div>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Durée (en semaines) *</label>
+              <input type="number" min="1" max="52" step="1" value={form.duree_semaines} placeholder="Ex : 6"
+                onChange={e => setForm(f => ({ ...f, duree_semaines: e.target.value }))} required />
+            </div>
           </div>
+          {finCalculee && (
+            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 -mt-1">
+              🗓 Fin calculée : <strong>{finCalculee}</strong> ({form.duree_semaines} semaine{parseInt(form.duree_semaines) > 1 ? 's' : ''} à partir du {form.date_debut}) — la progression sera suivie automatiquement sur cette période.
+            </p>
+          )}
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
             <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? 'Création...' : 'Créer'}</button>

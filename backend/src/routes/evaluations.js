@@ -103,13 +103,22 @@ function dansUnePlage(plages, d1, d2) {
   return plages.some(p => d1 >= p.date_debut && (d2 || d1) <= p.date_fin);
 }
 
-// CONTRAINTE DES PLAGES DÉSACTIVÉE (05/08/2026, demande du Directeur) :
-// les évaluations peuvent être créées et datées librement, avec ou sans plage
-// EVALUATIONS au Planning annuel. Les plages restent affichées à titre
-// INDICATIF dans l'interface (/plages). Pour réactiver la règle : restaurer
-// le corps de cette fonction (contrôle existence + inclusion des dates).
-function controlePlage() {
-  return null; // plus aucun blocage lié aux plages
+// CONTRAINTE DES PLAGES = OPTION pilotée par le DIRECTEUR DES (paramètre
+// contrainte_plages, page Référentiel). Activée : une plage EVALUATIONS doit
+// exister pour le pôle et les dates doivent s'y inscrire. Désactivée : indicatif.
+const { getParam } = require('./parametres');
+function controlePlage(db, user, { annee_id, pole_id, date_demarrage, date_fin_prevue }) {
+  if (getParam(db, 'contrainte_plages') !== '1') return null; // option désactivée par le DES
+  if (!date_demarrage) return null;
+  const plages = plagesEvaluations(db, annee_id, pole_id);
+  if (plages.length === 0) {
+    return "Contrainte des plages active : aucune plage d'évaluations n'est définie au Planning annuel pour ce pôle. Créez d'abord l'activité (type Évaluations), ou demandez au Directeur DES de désactiver la contrainte.";
+  }
+  if (!dansUnePlage(plages, date_demarrage, date_fin_prevue)) {
+    const liste = plages.map(p => `${p.date_debut} → ${p.date_fin}`).join(' ; ');
+    return `Contrainte des plages active : les évaluations doivent se tenir dans les plages du Planning annuel (${liste}).`;
+  }
+  return null;
 }
 
 /* ===== Lecture ===== */

@@ -70,7 +70,11 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
       .then(r => setPlages(r.data)).catch(() => setPlages([]));
   }, [form.pole_id, form.annee_id]);
 
-  // Repère indicatif : signale les dates hors plages du Planning annuel, sans bloquer
+  // Contrainte des plages : option activée/désactivée par le Directeur DES
+  const [contrainte, setContrainte] = useState(false);
+  useEffect(() => {
+    api.get('/parametres/contrainte-plages').then(r => setContrainte(!!r.data.active)).catch(() => {});
+  }, []);
   const horsPlage = plages?.length > 0 && form.date_demarrage && form.date_fin_prevue &&
     !plages.some(p => form.date_demarrage >= p.date_debut && form.date_fin_prevue <= p.date_fin);
 
@@ -141,11 +145,18 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
 
           <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
 
-          {/* Plages du Planning annuel — repère indicatif, sans blocage */}
+          {/* Plages du Planning annuel — bloquantes ou indicatives selon l'option du DES */}
           {form.pole_id && plages !== null && plages.length > 0 && (
-            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
-              📅 <strong>Plages d'évaluations du Planning annuel (à titre indicatif) :</strong>{' '}
+            <div className={`border rounded-xl p-3 text-xs ${contrainte ? 'bg-amber-50 border-amber-200 text-amber-800' : 'bg-blue-50 border-blue-100 text-blue-800'}`}>
+              📅 <strong>Plages d'évaluations du Planning annuel{contrainte ? '' : ' (à titre indicatif)'} :</strong>{' '}
               {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
+              {contrainte && <><br />🔒 Contrainte activée par le Directeur DES : les dates doivent impérativement s'y inscrire.</>}
+            </div>
+          )}
+          {contrainte && form.pole_id && plages !== null && plages.length === 0 && (
+            <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-700">
+              🔒 <strong>Contrainte des plages activée</strong> (Directeur DES) et aucune plage d'évaluations n'existe pour ce pôle :
+              la création sera refusée tant qu'une activité Évaluations n'est pas posée au Planning annuel.
             </div>
           )}
 
@@ -188,7 +199,9 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
               {form.groupe && <p className="text-[11px] text-amber-700">Seule la moitié de l'effectif ({form.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'}) sera comptée dans les ENO pour ce créneau.</p>}
             </div>
           )}
-          {horsPlage && <p className="text-xs text-amber-600 font-medium -mt-2">⚠ Ces dates sortent des plages du Planning annuel (information — la création reste possible).</p>}
+          {horsPlage && (contrainte
+            ? <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages du Planning annuel — la contrainte est active, l'enregistrement sera refusé.</p>
+            : <p className="text-xs text-amber-600 font-medium -mt-2">⚠ Ces dates sortent des plages du Planning annuel (information — la création reste possible).</p>)}
           {capaciteLive && (
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
               ⛔ <strong>Capacité des ENO dépassée sur cette période :</strong>{' '}

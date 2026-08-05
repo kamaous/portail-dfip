@@ -610,6 +610,18 @@ function runMigrations() {
   // Chargé de scolarité : rattaché à UN ENO
   addColumns('users', { eno_id: 'INTEGER' });
 
+  // Paramètres de plateforme (clé → valeur) — ex : contrainte_plages ('0'|'1'),
+  // pilotée par le Directeur DES
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS parametres (
+      cle TEXT PRIMARY KEY,
+      valeur TEXT NOT NULL,
+      modifie_par INTEGER,
+      modifie_le TEXT,
+      FOREIGN KEY (modifie_par) REFERENCES users(id)
+    );
+  `);
+
   // Référentiel : toute SUPPRESSION (pôle, formation, promotion, ENO) doit être
   // validée par le Vice-Recteur — les demandes sont tracées ici
   db.exec(`
