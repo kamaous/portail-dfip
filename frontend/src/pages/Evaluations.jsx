@@ -70,10 +70,9 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
       .then(r => setPlages(r.data)).catch(() => setPlages([]));
   }, [form.pole_id, form.annee_id]);
 
+  // Repère indicatif : signale les dates hors plages du Planning annuel, sans bloquer
   const horsPlage = plages?.length > 0 && form.date_demarrage && form.date_fin_prevue &&
     !plages.some(p => form.date_demarrage >= p.date_debut && form.date_fin_prevue <= p.date_fin);
-  // RÈGLE : sans plage au Planning annuel pour le pôle, la création est impossible (tous rôles)
-  const sansPlage = !!form.pole_id && plages !== null && plages.length === 0;
 
   // Pré-contrôle de CAPACITÉ des ENO en direct (effectifs cumulés vs capacités)
   // + détection des ENO où l'effectif dépasse à lui seul la capacité → groupes G1/G2
@@ -142,20 +141,12 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
 
           <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
 
-          {/* Plages autorisées (Planning annuel) */}
-          {form.pole_id && plages !== null && (
-            plages.length > 0 ? (
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
-                📅 <strong>Plages d'évaluations du Planning annuel :</strong>{' '}
-                {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
-                <br />Les dates doivent impérativement s'y inscrire.
-              </div>
-            ) : (
-              <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-700">
-                ⛔ <strong>Aucune plage d'évaluations n'est définie au Planning annuel pour ce pôle.</strong>{' '}
-                La création est bloquée pour tous les rôles : créez d'abord l'activité (type Évaluations) dans le Planning annuel.
-              </div>
-            )
+          {/* Plages du Planning annuel — repère indicatif, sans blocage */}
+          {form.pole_id && plages !== null && plages.length > 0 && (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+              📅 <strong>Plages d'évaluations du Planning annuel (à titre indicatif) :</strong>{' '}
+              {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
+            </div>
           )}
 
           <div>
@@ -197,7 +188,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
               {form.groupe && <p className="text-[11px] text-amber-700">Seule la moitié de l'effectif ({form.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'}) sera comptée dans les ENO pour ce créneau.</p>}
             </div>
           )}
-          {horsPlage && <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages autorisées — l'enregistrement sera refusé.</p>}
+          {horsPlage && <p className="text-xs text-amber-600 font-medium -mt-2">⚠ Ces dates sortent des plages du Planning annuel (information — la création reste possible).</p>}
           {capaciteLive && (
             <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
               ⛔ <strong>Capacité des ENO dépassée sur cette période :</strong>{' '}
@@ -208,10 +199,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
-            <button type="submit" disabled={loading || sansPlage} className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={sansPlage ? 'Aucune plage au Planning annuel pour ce pôle' : undefined}>
-              {loading ? '...' : 'Enregistrer'}
-            </button>
+            <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? '...' : 'Enregistrer'}</button>
           </div>
         </form>
       </div>

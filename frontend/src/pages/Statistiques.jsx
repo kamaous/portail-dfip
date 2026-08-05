@@ -954,7 +954,7 @@ function ConcepteurCalendrier({ cursus, poles }) {
         </span>
       </div>
       <p className="text-[11px] text-slate-400">
-        Les dates doivent s'inscrire dans les plages du Planning annuel du pôle. Pour organiser plusieurs formations, promotions ou niveaux
+        Les plages du Planning annuel sont indicatives : les dates sont libres. Pour organiser plusieurs formations, promotions ou niveaux
         sur la même période, concevez un calendrier par cursus — le contrôle de capacité cumule automatiquement tout ce qui partage un créneau.
       </p>
     </div>

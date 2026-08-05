@@ -308,9 +308,7 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
     date_debut: defaultDebut || '', date_fin: '',
   });
   const [loading, setLoading] = useState(false);
-  const [plages, setPlages] = useState(null);
-  // RÈGLE : sans plage au Planning annuel pour le pôle, la création est impossible (tous rôles)
-  const sansPlage = !!form.pole_id && plages !== null && plages.length === 0;
+  const [plages, setPlages] = useState(null); // plages du Planning annuel : INDICATIVES (aucun blocage)
 
   // Plages TUTORAT du Planning annuel pour le pôle choisi (cadrage des dates)
   useEffect(() => {
@@ -362,20 +360,12 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
           </div>
           <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
 
-          {/* Plages TUTORAT du planning annuel */}
-          {form.pole_id && plages !== null && (
-            plages.length > 0 ? (
-              <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
-                📅 <strong>Plages tutorat du Planning annuel :</strong>{' '}
-                {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
-                <br />Les dates de la fiche doivent s'y inscrire.
-              </div>
-            ) : (
-              <div className="bg-red-50 border border-red-100 rounded-xl p-3 text-xs text-red-700">
-                ⛔ <strong>Aucune plage de tutorat n'est définie au Planning annuel pour ce pôle.</strong>{' '}
-                La création est bloquée pour tous les rôles : créez d'abord l'activité (type Tutorat) dans le Planning annuel.
-              </div>
-            )
+          {/* Plages TUTORAT du planning annuel — repère indicatif, sans blocage */}
+          {form.pole_id && plages !== null && plages.length > 0 && (
+            <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
+              📅 <strong>Plages tutorat du Planning annuel (à titre indicatif) :</strong>{' '}
+              {plages.map((p, i) => <span key={i} className="inline-block bg-white rounded-lg px-2 py-0.5 mx-0.5 font-semibold">{p.date_debut} → {p.date_fin}</span>)}
+            </div>
           )}
 
           <div>
@@ -385,10 +375,7 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
           </div>
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
-            <button type="submit" disabled={loading || sansPlage} className="btn-primary flex-1 disabled:opacity-50 disabled:cursor-not-allowed"
-              title={sansPlage ? 'Aucune plage au Planning annuel pour ce pôle' : undefined}>
-              {loading ? 'Création...' : 'Créer'}
-            </button>
+            <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? 'Création...' : 'Créer'}</button>
           </div>
         </form>
       </div>

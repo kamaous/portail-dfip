@@ -41,17 +41,13 @@ function plagesTutorat(db, annee_id, poleId) {
     ORDER BY date_debut
   `).all(annee_id, POLE_SEGMENT_T[pole.code] || '—');
 }
-// RÈGLE : une activité TUTORAT (plage) doit exister au Planning annuel pour le pôle,
-// et les dates de la fiche doivent s'y inscrire — TOUS les rôles y sont soumis.
-function controlePlageTutorat(db, { annee_id, pole_id, date_debut, date_fin }) {
-  const plages = plagesTutorat(db, annee_id, pole_id);
-  if (plages.length === 0) {
-    return "Aucune plage de tutorat n'est définie au Planning annuel pour ce pôle. Créez d'abord l'activité (type Tutorat) dans le Planning annuel.";
-  }
-  const ok = plages.some(p => date_debut >= p.date_debut && (date_fin || date_debut) <= p.date_fin);
-  if (ok) return null;
-  const liste = plages.map(p => `${p.date_debut} → ${p.date_fin}`).join(' ; ');
-  return `Dates hors plage : le tutorat de votre pôle doit se tenir dans les plages du Planning annuel (${liste}).`;
+// CONTRAINTE DES PLAGES DÉSACTIVÉE (05/08/2026, demande du Directeur) :
+// les fiches de tutorat peuvent être créées et datées librement, avec ou sans
+// plage TUTORAT au Planning annuel. Les plages restent affichées à titre
+// INDICATIF dans l'interface. Pour réactiver la règle : restaurer le corps
+// de cette fonction (contrôle existence + inclusion des dates).
+function controlePlageTutorat() {
+  return null; // plus aucun blocage lié aux plages
 }
 
 function notifierRole(db, role, titre, message) {
