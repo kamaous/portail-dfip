@@ -58,7 +58,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
     session_num: 1, type_evaluation: 'EVALUATION', date_demarrage: defaultDate || '', date_fin_prevue: '',
-    heure_debut: '', heure_fin: '', groupe: '',
+    heure_debut: '08:30', heure_fin: '17:30', groupe: '',   // créneau standard par défaut
   });
   const [plages, setPlages] = useState(null);
   const [loading, setLoading] = useState(false);

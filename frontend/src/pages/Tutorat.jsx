@@ -305,7 +305,7 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
     formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
-    date_debut: defaultDebut || '', duree_semaines: '',
+    date_debut: defaultDebut || '', duree_semaines: '12',   // durée standard : 12 semaines
   });
   const [loading, setLoading] = useState(false);
   const [plages, setPlages] = useState(null);

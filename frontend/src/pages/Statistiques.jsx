@@ -757,7 +757,7 @@ function ConcepteurCalendrier({ cursus, poles }) {
   const [promos, setPromos] = useState([]);
   const [annee, setAnnee] = useState(null);
   const [sel, setSel] = useState({ promotion_code: '', niveau: '', formation_id: '', semestre_code: '', session_num: 1, groupe: '' });
-  const [lignes, setLignes] = useState([{ date: '', heure_debut: '08:30', heure_fin: '13:00', matieres: '', statut: null }]);
+  const [lignes, setLignes] = useState([{ date: '', heure_debut: '08:30', heure_fin: '17:30', matieres: '', statut: null }]);
   const [groupesRequis, setGroupesRequis] = useState([]);
   const [verif, setVerif] = useState(false);
   const [creation, setCreation] = useState(false);
@@ -946,7 +946,7 @@ function ConcepteurCalendrier({ cursus, poles }) {
         </table>
       </div>
       <div className="flex items-center gap-2 flex-wrap">
-        <button onClick={() => setLignes(ls => [...ls, { date: '', heure_debut: '08:30', heure_fin: '13:00', matieres: '', statut: null }])}
+        <button onClick={() => setLignes(ls => [...ls, { date: '', heure_debut: '08:30', heure_fin: '17:30', matieres: '', statut: null }])}
           className="btn-secondary !py-1.5 !px-3 text-xs flex items-center gap-1.5"><Plus size={13} /> Ajouter un jour / créneau</button>
         <span className="ml-auto flex gap-2">
           <button onClick={verifier} disabled={verif} className="btn-secondary !py-1.5 !px-4 text-xs">{verif ? 'Vérification…' : '🧪 Vérifier la capacité'}</button>
