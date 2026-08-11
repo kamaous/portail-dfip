@@ -38,6 +38,88 @@ const ROLE_COLORS = {
   ADMIN_PORTAIL: 'bg-red-100 text-red-800',
 };
 
+/* ===== Réinitialisation de mot de passe par l'administrateur =====
+   - générer un mot de passe temporaire (affiché + envoyé par email), OU en définir un ;
+   - dans les deux cas, l'utilisateur DEVRA le changer à sa première connexion. */
+function ModalResetPassword({ user, onClose, onDone }) {
+  const [mode, setMode] = useState('AUTO');   // AUTO = temporaire généré | CHOISI
+  const [mdp, setMdp] = useState('');
+  const [resultat, setResultat] = useState(null); // mot de passe issu du serveur
+  const [loading, setLoading] = useState(false);
+
+  async function lancer() {
+    if (mode === 'CHOISI' && mdp.trim().length < 6) return toast.error('6 caractères minimum');
+    setLoading(true);
+    try {
+      const r = await api.post(`/users/${user.id}/reset-password`, { password: mode === 'CHOISI' ? mdp.trim() : '' });
+      setResultat(r.data.tmp_password);
+      onDone();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+    finally { setLoading(false); }
+  }
+
+  function copier() {
+    navigator.clipboard?.writeText(resultat).then(() => toast.success('Mot de passe copié'))
+      .catch(() => toast.error('Copie impossible — notez-le manuellement'));
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
+        <div className="flex items-center justify-between p-5 border-b">
+          <h2 className="font-semibold text-slate-800">🔑 Réinitialiser le mot de passe</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-sm text-slate-600">
+            Compte : <strong>{user.prenom} {user.nom}</strong> <span className="text-slate-400">({user.email})</span>
+          </p>
+
+          {resultat === null ? (
+            <>
+              <div className="space-y-2">
+                {[['AUTO', 'Générer un mot de passe temporaire', 'Le mot de passe est créé automatiquement, affiché ici et envoyé par email à l\'utilisateur.'],
+                  ['CHOISI', 'Définir moi-même le mot de passe', 'Vous saisissez le mot de passe et le communiquez vous-même à l\'utilisateur.']].map(([v, l, d]) => (
+                  <label key={v} className={`block border-2 rounded-xl p-3 cursor-pointer ${mode === v ? 'border-[#1e3a5f] bg-blue-50/50' : 'border-slate-200 hover:border-slate-300'}`}>
+                    <span className="flex items-center gap-2">
+                      <input type="radio" checked={mode === v} onChange={() => setMode(v)} className="accent-[#1e3a5f]" />
+                      <span className="text-sm font-semibold text-slate-800">{l}</span>
+                    </span>
+                    <span className="block text-xs text-slate-500 mt-1 ml-6">{d}</span>
+                  </label>
+                ))}
+              </div>
+              {mode === 'CHOISI' && (
+                <input value={mdp} onChange={e => setMdp(e.target.value)} placeholder="Nouveau mot de passe (6 caractères min.)" autoFocus />
+              )}
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-2.5">
+                ⚠️ Dans tous les cas, l'utilisateur devra <strong>changer ce mot de passe à sa première connexion</strong>
+                (nouveau ≠ mot de passe communiqué). Ses sessions en cours restent valides jusqu'à expiration.
+              </p>
+              <div className="flex gap-2 pt-1">
+                <button onClick={onClose} className="btn-secondary flex-1">Annuler</button>
+                <button onClick={lancer} disabled={loading} className="btn-primary flex-1">{loading ? '...' : 'Réinitialiser'}</button>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="bg-green-50 border border-green-200 rounded-xl p-4 text-center">
+                <p className="text-xs text-green-700 mb-2">✅ Mot de passe réinitialisé — communiquez-le à l'utilisateur :</p>
+                <p className="text-xl font-bold tracking-wider text-slate-800 font-mono select-all">{resultat}</p>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={copier} className="btn-secondary flex-1">📋 Copier</button>
+                <button onClick={onClose} className="btn-primary flex-1">Fermer</button>
+              </div>
+              <p className="text-[11px] text-slate-400 text-center">Un email a également été envoyé à {user.email}.</p>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ModalUser({ poles, enos = [], user: editUser, onClose, onSaved }) {
   const [form, setForm] = useState(editUser ? {
     nom: editUser.nom, prenom: editUser.prenom || '', email: editUser.email,
@@ -155,22 +237,8 @@ export default function Utilisateurs() {
 
   useEffect(load, []);
 
-  async function resetPassword(u) {
-    const saisie = prompt(
-      `Réinitialiser le mot de passe de ${u.prenom} ${u.nom}.\n\n` +
-      `Tapez le NOUVEAU mot de passe (6 caractères min.),\n` +
-      `ou laissez vide pour générer un temporaire (envoyé par email, à changer à la 1re connexion).`
-    );
-    if (saisie === null) return; // annulé
-    try {
-      const r = await api.post(`/users/${u.id}/reset-password`, { password: saisie.trim() });
-      // Affichage impossible à manquer : l'email du compte peut ne pas exister (comptes de test)
-      alert(`Mot de passe de ${u.prenom} ${u.nom} :\n\n    ${r.data.tmp_password}\n\nNotez-le maintenant${saisie.trim() ? '' : ' — il devra être changé à la première connexion'}.`);
-      load();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erreur');
-    }
-  }
+  const [resetModal, setResetModal] = useState(null); // utilisateur ciblé par la réinitialisation
+  function resetPassword(u) { setResetModal(u); }
 
   async function debloquer(u) {
     if (!confirm(`Débloquer le compte de ${u.prenom} ${u.nom} ?\n(Il avait été bloqué après 3 tentatives de connexion échouées.)`)) return;
@@ -268,6 +336,10 @@ export default function Utilisateurs() {
           </tbody>
         </table>
       </div>
+
+      {resetModal && (
+        <ModalResetPassword user={resetModal} onClose={() => setResetModal(null)} onDone={load} />
+      )}
 
       {modal && (
         <ModalUser

@@ -399,7 +399,7 @@ export default function Evaluations() {
           })}
           <div className="ml-auto flex items-center gap-2 flex-wrap">
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
-              {[['PLANNING', GanttChartSquare, 'Planning'], ['CARTES', List, 'Cartes']].map(([v, Icon, label]) => (
+              {[['PLANNING', GanttChartSquare, 'Planning'], ['CARTES', LayoutGrid, 'Cartes'], ['LISTE', List, 'Liste']].map(([v, Icon, label]) => (
                 <button key={v} onClick={() => setVue(v)}
                   className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-colors ${vue === v ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
                   <Icon size={15} /> {label}
@@ -459,6 +459,8 @@ export default function Evaluations() {
         <div className="flex justify-center h-32 items-center"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
       ) : affiches.length === 0 ? (
         <div className="card py-12 text-center text-slate-400"><ClipboardCheck size={36} className="mx-auto mb-2 opacity-30" />Aucune évaluation{segment ? ` pour le pôle ${segment}` : ''}</div>
+      ) : vue === 'LISTE' ? (
+        <ListeEvaluations evals={affiches} onOuvrir={(id) => setDetailId(id)} />
       ) : vue === 'CARTES' ? (
         <>
           {/* Activités EVALUATIONS issues du Planning annuel */}
@@ -853,6 +855,90 @@ function LigneSelect({ label, cfg, value, editable, onChange }) {
 }
 
 /* Export PDF du calendrier d'examens d'un cursus (formation × promotion × niveau ± semestre ± session) */
+/* ===== Vue LISTE : tableau simple et triable des évaluations (clic = ouvrir le détail) ===== */
+function statutSuivi(e) {
+  if (e.etat === 'SUSPENDU') return ['Examen suspendu', 'bg-violet-100 text-violet-700'];
+  if (e.etat === 'ANNULE') return ['Examen annulé', 'bg-red-100 text-red-700'];
+  if (e.delib_etat === 'TERMINEE') return ['Terminé et délibéré', 'bg-green-100 text-green-700'];
+  if (e.etat_eval === 'EVAL_TERMINEES') return ['Examen terminé', 'bg-emerald-100 text-emerald-700'];
+  if (e.etat_eval === 'EVAL_EN_COURS') return ['Évaluations en cours', 'bg-amber-100 text-amber-700'];
+  if (e.date_programmation) return ['Examen programmé', 'bg-blue-100 text-blue-700'];
+  return ['Examen à programmer', 'bg-slate-100 text-slate-600'];
+}
+function ListeEvaluations({ evals, onOuvrir }) {
+  const [tri, setTri] = useState({ cle: 'date_demarrage', sens: 1 });
+  const trier = (cle) => setTri(t => ({ cle, sens: t.cle === cle ? -t.sens : 1 }));
+
+  const valeur = (s, cle) => {
+    switch (cle) {
+      case 'formation': return s.formation_code || s.formation_nom || s.pole_code || '';
+      case 'statut': return statutSuivi(s)[0];
+      case 'session': return s.session_num;
+      default: return s[cle] ?? '';
+    }
+  };
+  const lignes = [...evals].sort((a, b) => {
+    const va = valeur(a, tri.cle), vb = valeur(b, tri.cle);
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'fr');
+    return cmp * tri.sens;
+  });
+
+  const COLS = [
+    ['formation', 'Formation'], ['promotion_code', 'Promotion'], ['niveau', 'Niveau'],
+    ['semestre_code', 'Semestre'], ['session', 'Session'], ['pole_code', 'Pôle'],
+    ['date_demarrage', 'Début'], ['date_fin_prevue', 'Fin'], ['heure_debut', 'Horaire'], ['statut', 'Statut du suivi'],
+  ];
+
+  return (
+    <div className="card !p-0 overflow-x-auto nav-scroll">
+      <table className="w-full text-sm min-w-[1000px]">
+        <thead>
+          <tr className="bg-slate-50 border-b border-slate-200">
+            {COLS.map(([cle, lbl]) => (
+              <th key={cle} onClick={() => trier(cle)}
+                className="text-left px-3 py-2.5 table-header cursor-pointer select-none hover:text-[#1e3a5f] whitespace-nowrap"
+                title="Cliquer pour trier (re-cliquer pour inverser)">
+                {lbl} {tri.cle === cle ? (tri.sens === 1 ? '▲' : '▼') : <span className="text-slate-300">↕</span>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map(s => {
+            const [lbl, cls] = statutSuivi(s);
+            const seg = POLES_SEG[s.pole_code] || POLES_SEG.STN;
+            return (
+              <tr key={s.id} onClick={() => onOuvrir(s.id)}
+                className={`border-b border-slate-50 hover:bg-blue-50/40 cursor-pointer ${s.etat === 'ANNULE' ? 'opacity-50' : ''}`}
+                title="Cliquer pour ouvrir le détail">
+                <td className="px-3 py-2 font-medium text-slate-800">
+                  {s.type_evaluation === 'DEVOIR' ? '📝 ' : ''}{s.formation_code || s.formation_nom || `${s.pole_code} (pôle)`}
+                  {s.groupe && <span className="badge bg-amber-100 text-amber-800 text-[10px] ml-1.5">👥 {s.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'}</span>}
+                  {s.etat === 'ANNULE' && <span className="badge bg-red-100 text-red-700 text-[10px] ml-1.5">Annulée</span>}
+                  {s.etat === 'SUSPENDU' && <span className="badge bg-violet-100 text-violet-700 text-[10px] ml-1.5">⏸ Suspendue</span>}
+                  {s.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                </td>
+                <td className="px-3 py-2 text-slate-600">{s.promotion_code || '—'}</td>
+                <td className="px-3 py-2 text-slate-600">{s.niveau || '—'}</td>
+                <td className="px-3 py-2 text-slate-600">{s.semestre_code || '—'}</td>
+                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{SESSION_CODE[s.session_num]}</td>
+                <td className="px-3 py-2 font-semibold" style={{ color: seg.color }}>{s.pole_code}</td>
+                <td className="px-3 py-2 text-slate-600 whitespace-nowrap tabular-nums">{s.date_demarrage || '—'}</td>
+                <td className="px-3 py-2 text-slate-600 whitespace-nowrap tabular-nums">{s.date_fin_prevue || '—'}</td>
+                <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{s.heure_debut ? `${s.heure_debut}–${s.heure_fin || ''}` : 'Journée'}</td>
+                <td className="px-3 py-2">
+                  <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
+                  {s.delib_etat === 'TERMINEE' && <span title="Délibérée"> ⚖</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 /* Groupe de cases à cocher réutilisable du modal d'export (multi-sélection) */
 function GroupeCoches({ label, options, values, onToggle, cols = 3 }) {
   const COLS = { 1: 'grid-cols-1', 2: 'grid-cols-2', 3: 'grid-cols-3' };

@@ -299,6 +299,93 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
   );
 }
 
+/* ===== Vue LISTE : tableau simple et triable des fiches (clic = ouvrir la fiche) ===== */
+const ETAT_TUT_BADGE = {
+  PAS_DEMARRE: 'bg-slate-100 text-slate-600',
+  PRET: 'bg-blue-100 text-blue-700',
+  EN_COURS: 'bg-amber-100 text-amber-700',
+  TERMINE: 'bg-green-100 text-green-700',
+};
+function ListeTutorats({ tutorats, onOuvrir }) {
+  const [tri, setTri] = useState({ cle: 'date_debut', sens: 1 });
+  const trier = (cle) => setTri(t => ({ cle, sens: t.cle === cle ? -t.sens : 1 }));
+
+  const valeur = (t, cle) => {
+    switch (cle) {
+      case 'formation': return t.formation_code || t.formation_nom || t.pole_code || '';
+      case 'etat': return etatTutoratAuto(t);
+      case 'progression': return progressionDates(t);
+      default: return t[cle] ?? '';
+    }
+  };
+  const lignes = [...tutorats].sort((a, b) => {
+    const va = valeur(a, tri.cle), vb = valeur(b, tri.cle);
+    const cmp = typeof va === 'number' ? va - vb : String(va).localeCompare(String(vb), 'fr');
+    return cmp * tri.sens;
+  });
+
+  const COLS = [
+    ['formation', 'Formation'], ['promotion_code', 'Promotion'], ['niveau', 'Niveau'],
+    ['semestre_code', 'Semestre'], ['pole_code', 'Pôle'], ['date_debut', 'Début'],
+    ['date_fin', 'Fin'], ['etat', 'État'], ['progression', 'Progression'],
+  ];
+
+  return (
+    <div className="card !p-0 overflow-x-auto nav-scroll">
+      <table className="w-full text-sm min-w-[900px]">
+        <thead>
+          <tr className="bg-slate-50 border-b border-slate-200">
+            {COLS.map(([cle, lbl]) => (
+              <th key={cle} onClick={() => trier(cle)}
+                className="text-left px-3 py-2.5 table-header cursor-pointer select-none hover:text-[#1e3a5f] whitespace-nowrap"
+                title="Cliquer pour trier (re-cliquer pour inverser)">
+                {lbl} {tri.cle === cle ? (tri.sens === 1 ? '▲' : '▼') : <span className="text-slate-300">↕</span>}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {lignes.map(t => {
+            const etat = etatTutoratAuto(t);
+            const seg = POLES_SEG[t.pole_code] || POLES_SEG.STN;
+            const pct = Math.round(progressionDates(t) * 100);
+            return (
+              <tr key={t.id} onClick={() => onOuvrir(t.id)}
+                className="border-b border-slate-50 hover:bg-blue-50/40 cursor-pointer"
+                title="Cliquer pour ouvrir la fiche">
+                <td className="px-3 py-2 font-medium text-slate-800">
+                  {t.formation_code || t.formation_nom || `${t.pole_code} (pôle)`}
+                  {t.statut_fiche === 'SOUMISE' && <span className="badge bg-amber-100 text-amber-800 text-[10px] ml-1.5">⏳ À valider</span>}
+                  {t.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                </td>
+                <td className="px-3 py-2 text-slate-600">{t.promotion_code || '—'}</td>
+                <td className="px-3 py-2 text-slate-600">{t.niveau || '—'}</td>
+                <td className="px-3 py-2 text-slate-600">{t.semestre_code || '—'}</td>
+                <td className="px-3 py-2 font-semibold" style={{ color: seg.color }}>{t.pole_code}</td>
+                <td className="px-3 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_debut || t.date_demarree_le || '—'}</td>
+                <td className="px-3 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_fin || t.date_terminee_le || '—'}</td>
+                <td className="px-3 py-2">
+                  <span className={`badge text-[11px] ${ETAT_TUT_BADGE[etat] || ETAT_TUT_BADGE.PAS_DEMARRE}`}>
+                    {ETATS.etat_tutorat.options[etat] || etat}
+                  </span>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-slate-100 rounded-full min-w-16">
+                      <div className="h-1.5 rounded-full bg-[#1e3a5f]" style={{ width: `${pct}%` }} />
+                    </div>
+                    <span className="text-xs tabular-nums text-slate-500 w-9 text-right">{pct}%</span>
+                  </div>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
 function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, onCreated }) {
   const estRF = user?.role === 'RESPONSABLE_FORMATION'; // pôle verrouillé + fiche soumise à validation
   const [form, setForm] = useState({
@@ -800,7 +887,7 @@ export default function Tutorat() {
           })}
           <div className="ml-auto flex items-center gap-2 flex-wrap">
             <div className="flex rounded-xl border border-slate-200 overflow-hidden">
-              {[['PLANNING', GanttChartSquare, 'Planning'], ['FICHES', List, 'Fiches']].map(([v, Icon, label]) => (
+              {[['PLANNING', GanttChartSquare, 'Planning'], ['FICHES', LayoutGrid, 'Fiches'], ['LISTE', List, 'Liste']].map(([v, Icon, label]) => (
                 <button key={v} onClick={() => setVue(v)}
                   className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-colors ${vue === v ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
                   <Icon size={15} /> {label}
@@ -855,6 +942,8 @@ export default function Tutorat() {
           <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
           Aucune fiche de suivi{segment ? ` pour le pôle ${segment}` : ''}
         </div>
+      ) : vue === 'LISTE' ? (
+        <ListeTutorats tutorats={tutoratsAffiches} onOuvrir={(id) => setDetailId(id)} />
       ) : vue === 'FICHES' ? (
         <>
           {/* Activités TUTORAT issues du Planning annuel */}
