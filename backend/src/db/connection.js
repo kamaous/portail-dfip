@@ -610,6 +610,12 @@ function runMigrations() {
   // Chargé de scolarité : rattaché à UN ENO
   addColumns('users', { eno_id: 'INTEGER' });
 
+  // Sécurité production : blocage du compte après 3 tentatives de connexion échouées
+  addColumns('users', {
+    bloque: 'INTEGER NOT NULL DEFAULT 0',
+    tentatives_echouees: 'INTEGER NOT NULL DEFAULT 0',
+  });
+
   // Paramètres de plateforme (clé → valeur) — ex : contrainte_plages ('0'|'1'),
   // pilotée par le Directeur DES
   db.exec(`

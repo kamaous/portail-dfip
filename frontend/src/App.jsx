@@ -36,6 +36,11 @@ function ProtectedRoute({ children, roles }) {
   );
 
   if (!user) return <Navigate to="/login" replace />;
+  // Mot de passe à changer OBLIGATOIREMENT : seule la page de changement est accessible
+  // (le serveur bloque de toute façon toutes les autres API)
+  if (user.must_change_password && window.location.pathname !== '/changer-mot-de-passe') {
+    return <Navigate to="/changer-mot-de-passe" replace />;
+  }
   if (roles && !roles.includes(user.role)) return <Navigate to="/" replace />;
   return children;
 }

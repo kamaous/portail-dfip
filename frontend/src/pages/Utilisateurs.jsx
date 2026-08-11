@@ -172,6 +172,15 @@ export default function Utilisateurs() {
     }
   }
 
+  async function debloquer(u) {
+    if (!confirm(`Débloquer le compte de ${u.prenom} ${u.nom} ?\n(Il avait été bloqué après 3 tentatives de connexion échouées.)`)) return;
+    try {
+      await api.post(`/users/${u.id}/debloquer`);
+      toast.success('Compte débloqué — l\'utilisateur peut se reconnecter');
+      load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+
   async function toggleActif(u) {
     if (!confirm(`${u.actif ? 'Désactiver' : 'Réactiver'} ${u.prenom} ${u.nom} ?`)) return;
     if (u.actif) {
@@ -230,6 +239,9 @@ export default function Utilisateurs() {
                   <span className={`badge ${u.actif ? 'bg-green-100 text-green-700' : 'bg-slate-100 text-slate-500'}`}>
                     {u.actif ? 'Actif' : 'Inactif'}
                   </span>
+                  {u.bloque === 1 && (
+                    <span className="badge bg-red-100 text-red-700 ml-1" title="Bloqué après 3 tentatives de connexion échouées">🔒 Bloqué</span>
+                  )}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-1 justify-end">
@@ -239,6 +251,11 @@ export default function Utilisateurs() {
                     <button onClick={() => resetPassword(u)} className="p-1.5 text-amber-600 hover:bg-amber-50 rounded" title="Réinitialiser MP">
                       <RefreshCw size={15} />
                     </button>
+                    {u.bloque === 1 && (
+                      <button onClick={() => debloquer(u)} className="p-1.5 text-green-600 hover:bg-green-50 rounded font-bold" title="Débloquer le compte (3 tentatives échouées)">
+                        🔓
+                      </button>
+                    )}
                     {u.id !== me?.id && (
                       <button onClick={() => toggleActif(u)} className={`p-1.5 rounded ${u.actif ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`} title={u.actif ? 'Désactiver' : 'Réactiver'}>
                         {u.actif ? <UserX size={15} /> : <UserCheck size={15} />}

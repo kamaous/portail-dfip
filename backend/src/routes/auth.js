@@ -49,14 +49,45 @@ router.post('/login', (req, res) => {
   const db = getDb();
   const user = db.prepare('SELECT * FROM users WHERE email = ? AND actif = 1').get(email.toLowerCase().trim());
 
+  // Compte BLOQUÉ (3 tentatives échouées) : seul un administrateur peut débloquer
+  if (user && user.bloque) {
+    db.prepare('INSERT INTO audit_logs (user_id, action, module, detail, ip_address) VALUES (?, ?, ?, ?, ?)')
+      .run(user.id, 'LOGIN_BLOQUE', 'AUTH', 'tentative sur compte bloqué', ipClient);
+    return res.status(423).json({ error: 'Compte bloqué après 3 tentatives de connexion échouées. Contactez l\'administrateur pour le débloquer.' });
+  }
+
   if (!user || !bcrypt.compareSync(password, user.password_hash)) {
     const cur = tentatives.get(cle) || { count: 0, until: 0 };
     tentatives.set(cle, { count: cur.count + 1, until: Date.now() + FENETRE_MS });
     db.prepare('INSERT INTO audit_logs (user_id, action, module, detail, ip_address) VALUES (?, ?, ?, ?, ?)')
       .run(user?.id || null, 'LOGIN_FAILED', 'AUTH', String(email).slice(0, 120), ipClient);
+
+    // Compteur PAR COMPTE : au 3e échec, le compte est bloqué
+    if (user) {
+      const essais = (user.tentatives_echouees || 0) + 1;
+      if (essais >= 3) {
+        db.prepare('UPDATE users SET bloque = 1, tentatives_echouees = ? WHERE id = ?').run(essais, user.id);
+        db.prepare('INSERT INTO audit_logs (user_id, action, module, detail, ip_address) VALUES (?, ?, ?, ?, ?)')
+          .run(user.id, 'COMPTE_BLOQUE', 'AUTH', '3 tentatives échouées', ipClient);
+        const admins = db.prepare("SELECT id FROM users WHERE role IN ('ADMIN_PORTAIL','DIRECTEUR') AND actif = 1").all();
+        const ins = db.prepare('INSERT INTO notifications (user_id, titre, message, type, lien) VALUES (?, ?, ?, ?, ?)');
+        admins.forEach(a => ins.run(a.id, '🔒 Compte bloqué',
+          `Le compte ${user.email} a été bloqué après 3 tentatives de connexion échouées.`, 'SECURITE', '/utilisateurs'));
+        return res.status(423).json({ error: 'Compte bloqué après 3 tentatives de connexion échouées. Contactez l\'administrateur pour le débloquer.' });
+      }
+      db.prepare('UPDATE users SET tentatives_echouees = ? WHERE id = ?').run(essais, user.id);
+      return res.status(401).json({ error: `Email ou mot de passe incorrect (tentative ${essais}/3 — le compte sera bloqué au 3e échec)` });
+    }
     return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
   }
   tentatives.delete(cle);
+  if (user.tentatives_echouees) db.prepare('UPDATE users SET tentatives_echouees = 0 WHERE id = ?').run(user.id);
+
+  // MOT DE PASSE PAR DÉFAUT encore en usage → changement OBLIGATOIRE à cette connexion
+  if (password === 'Test@2026' && !user.must_change_password) {
+    db.prepare('UPDATE users SET must_change_password = 1 WHERE id = ?').run(user.id);
+    user.must_change_password = 1;
+  }
 
   const jti = generateJti();
   const token = jwt.sign(
@@ -105,6 +136,14 @@ router.post('/change-password', auth, (req, res) => {
   }
   if (nouveau_password.length < 6) {
     return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+  }
+  // Le nouveau mot de passe doit être DIFFÉRENT de l'actuel
+  if (nouveau_password === ancien_password) {
+    return res.status(400).json({ error: 'Le nouveau mot de passe doit être différent du mot de passe actuel' });
+  }
+  // Interdire de revenir au mot de passe par défaut
+  if (nouveau_password === 'Test@2026') {
+    return res.status(400).json({ error: 'Ce mot de passe n\'est pas autorisé — choisissez un mot de passe personnel' });
   }
 
   const db = getDb();

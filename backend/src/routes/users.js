@@ -12,7 +12,7 @@ router.get('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_SERVICE'),
   const db = getDb();
   const users = db.prepare(`
     SELECT u.id, u.nom, u.prenom, u.email, u.role, u.service, u.actif,
-           u.must_change_password, u.created_at, p.nom as pole_nom
+           u.must_change_password, u.bloque, u.created_at, p.nom as pole_nom
     FROM users u
     LEFT JOIN poles p ON p.id = u.pole_id
     ORDER BY u.nom
@@ -128,7 +128,9 @@ router.put('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) =
     pole_id || null, eno_id !== undefined ? (eno_id || null) : prev.eno_id, service || null, actif !== undefined ? actif : 1, req.params.id);
 
   if (mdp) {
-    db.prepare("UPDATE users SET password_hash = ?, must_change_password = 0 WHERE id = ?")
+    // Mot de passe posé par l'administration = mot de passe PAR DÉFAUT :
+    // l'utilisateur devra le changer à sa première connexion
+    db.prepare("UPDATE users SET password_hash = ?, must_change_password = 1 WHERE id = ?")
       .run(bcrypt.hashSync(mdp, 10), req.params.id);
   }
 
@@ -152,6 +154,19 @@ router.delete('/:id', auth, requireRole('ADMIN_PORTAIL'), (req, res) => {
   res.json({ message: 'Utilisateur désactivé' });
 });
 
+// POST /api/users/:id/debloquer — lève le blocage après 3 tentatives échouées (ADMIN + DIRECTEUR)
+router.post('/:id/debloquer', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'Utilisateur introuvable' });
+  db.prepare("UPDATE users SET bloque = 0, tentatives_echouees = 0, updated_at = datetime('now') WHERE id = ?").run(u.id);
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, 'COMPTE_DEBLOQUE', 'USERS', u.email);
+  db.prepare('INSERT INTO notifications (user_id, titre, message, type) VALUES (?, ?, ?, ?)')
+    .run(u.id, '🔓 Compte débloqué', 'Votre compte a été débloqué par l\'administration. Vous pouvez vous reconnecter.', 'SECURITE');
+  res.json({ message: 'Compte débloqué' });
+});
+
 // POST /api/users/:id/reset-password (ADMIN + DIRECTEUR)
 // L'admin peut fournir son propre mot de passe ({ password }) — sinon un temporaire est généré.
 router.post('/:id/reset-password', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
@@ -165,9 +180,9 @@ router.post('/:id/reset-password', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL
   }
 
   db.prepare(`
-    UPDATE users SET password_hash = ?, must_change_password = ?, updated_at = datetime('now')
+    UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = datetime('now')
     WHERE id = ?
-  `).run(hash, choisi ? 0 : 1, req.params.id); // mot de passe choisi par l'admin = définitif
+  `).run(hash, req.params.id); // tout mot de passe posé par l'admin doit être changé à la 1re connexion
 
   const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
   sendEmail({

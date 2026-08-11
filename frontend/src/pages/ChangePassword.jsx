@@ -14,6 +14,7 @@ export default function ChangePassword() {
     e.preventDefault();
     if (form.nouveau_password !== form.confirm) return toast.error('Les mots de passe ne correspondent pas');
     if (form.nouveau_password.length < 6) return toast.error('Minimum 6 caractères');
+    if (form.nouveau_password === form.ancien_password) return toast.error('Le nouveau mot de passe doit être différent du mot de passe actuel');
 
     setLoading(true);
     try {
@@ -22,7 +23,8 @@ export default function ChangePassword() {
         nouveau_password: form.nouveau_password
       });
       toast.success('Mot de passe changé avec succès !');
-      navigate('/');
+      // Rechargement complet : le profil (must_change_password = 0) est refetché et l'accès s'ouvre
+      setTimeout(() => { window.location.href = '/'; }, 600);
     } catch (err) {
       toast.error(err.response?.data?.error || 'Erreur');
     } finally {

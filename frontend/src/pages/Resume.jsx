@@ -125,12 +125,38 @@ export default function Resume() {
   const sansNiveau = itemsPole.filter(x => !NIVEAUX_ORDRE.includes(x.niveau));
   const majPole = itemsPole.reduce((m, x) => ((x.updated_at || x.created_at || '') > m ? (x.updated_at || x.created_at) : m), '');
 
-  /* ===== Données onglet DFIP : programmation des évaluations ===== */
+  /* ===== Données onglet DFIP : programmation des évaluations =====
+     Structuration hiérarchique PROMOTIONS → PÔLES → NIVEAUX (formations en lignes) */
   const evalsProg = [...evalsDfip].sort((a, b) => {
     const da = a.date_programmation || a.date_demarrage || '9999';
     const db_ = b.date_programmation || b.date_demarrage || '9999';
     return da.localeCompare(db_);
   });
+  const groupesDfip = (() => {
+    const promos = [...new Set(evalsProg.map(e => e.promotion_code || '—'))]
+      .sort((a, b) => b.localeCompare(a, 'fr', { numeric: true })); // P13 avant P12…
+    return promos.map(promo => {
+      const dePromo = evalsProg.filter(e => (e.promotion_code || '—') === promo);
+      const poles_ = [...new Set(dePromo.map(e => e.pole_code || '—'))].sort();
+      return {
+        promo, total: dePromo.length,
+        terminees: dePromo.filter(e => e.etat_eval === 'EVAL_TERMINEES' || e.delib_etat === 'TERMINEE').length,
+        deliberees: dePromo.filter(e => e.delib_etat === 'TERMINEE').length,
+        poles: poles_.map(pc => {
+          const dePole = dePromo.filter(e => (e.pole_code || '—') === pc);
+          const niveaux = [...NIVEAUX_ORDRE.filter(n => dePole.some(e => e.niveau === n)),
+            ...(dePole.some(e => !NIVEAUX_ORDRE.includes(e.niveau)) ? [null] : [])];
+          return {
+            pole: pc, total: dePole.length,
+            niveaux: niveaux.map(niv => ({
+              niv,
+              items: dePole.filter(e => niv === null ? !NIVEAUX_ORDRE.includes(e.niveau) : e.niveau === niv),
+            })),
+          };
+        }),
+      };
+    });
+  })();
   const nbProgrammees = evalsDfip.filter(e => e.date_programmation).length;
   const nbTerminees = evalsDfip.filter(e => e.etat_eval === 'EVAL_TERMINEES').length;
   const nbDeliberees = evalsDfip.filter(e => e.delib_etat === 'TERMINEE').length;
@@ -325,28 +351,60 @@ export default function Resume() {
                   </tr>
                 </thead>
                 <tbody>
-                  {evalsProg.map(e => {
-                    const [lbl, cls] = statutSuivi(e);
-                    const pc = POLES_SEG[e.pole_code]?.color || '#64748b';
-                    return (
-                      <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/60">
-                        <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(e)}</td>
-                        <td className="px-4 py-2 whitespace-nowrap tabular-nums font-medium text-slate-800">{e.date_programmation || '—'}</td>
-                        <td className="px-4 py-2">
-                          <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: pc }} />
-                          <span className="font-medium text-slate-800" title={e.formation_nom || ''}>{nomProgramme(e)}</span>
-                          {e.promotion_code && <span className="text-xs text-slate-400"> · {e.promotion_code}</span>}
-                          {e.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
-                        </td>
-                        <td className="px-4 py-2 text-slate-600">{SESSION_LABEL[e.session_num]}</td>
-                        <td className="px-4 py-2">
-                          <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
-                          {e.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
-                        </td>
-                        <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{e.date_fin_prevue || '—'}</td>
-                      </tr>
-                    );
-                  })}
+                  {/* Hiérarchie : PROMOTION → PÔLE → NIVEAU → formations */}
+                  {groupesDfip.map(g => [
+                    <tr key={`promo-${g.promo}`} style={{ background: '#1e3a5f' }}>
+                      <td colSpan={4} className="px-4 py-2 font-bold text-white text-sm tracking-wide">
+                        🎓 PROMOTION {g.promo}
+                      </td>
+                      <td colSpan={2} className="px-4 py-2 text-right text-[11px] font-semibold text-blue-100">
+                        {g.total} évaluation(s) · {g.terminees} terminée(s) · {g.deliberees} délibérée(s)
+                      </td>
+                    </tr>,
+                    ...g.poles.map(gp => {
+                      const seg = POLES_SEG[gp.pole] || { color: '#64748b', light: '#f1f5f9' };
+                      return [
+                        <tr key={`promo-${g.promo}-pole-${gp.pole}`} style={{ background: seg.light }}>
+                          <td colSpan={4} className="px-4 py-1.5 font-bold text-[13px]" style={{ color: seg.color }}>
+                            <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: seg.color }} />
+                            Pôle {gp.pole}
+                          </td>
+                          <td colSpan={2} className="px-4 py-1.5 text-right text-[11px] font-semibold" style={{ color: seg.color }}>
+                            {gp.total} évaluation(s)
+                          </td>
+                        </tr>,
+                        ...gp.niveaux.map(gn => [
+                          <tr key={`promo-${g.promo}-pole-${gp.pole}-niv-${gn.niv || 'autres'}`} className="bg-slate-50 border-b border-slate-200">
+                            <td colSpan={6} className="px-6 py-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              {gn.niv ? NIVEAU_LABEL[gn.niv] : 'Autres niveaux'} <span className="font-normal normal-case">— {gn.items.length} formation(s) évaluée(s)</span>
+                            </td>
+                          </tr>,
+                          ...gn.items.map(e => {
+                            const [lbl, cls] = statutSuivi(e);
+                            const pc = POLES_SEG[e.pole_code]?.color || '#64748b';
+                            return (
+                              <tr key={e.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                                <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(e)}</td>
+                                <td className="px-4 py-2 whitespace-nowrap tabular-nums font-medium text-slate-800">{e.date_programmation || '—'}</td>
+                                <td className="px-4 py-2">
+                                  <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: pc }} />
+                                  <span className="font-medium text-slate-800" title={e.formation_nom || ''}>{nomProgramme(e)}</span>
+                                  {e.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
+                                  {e.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                                </td>
+                                <td className="px-4 py-2 text-slate-600">{SESSION_LABEL[e.session_num]}</td>
+                                <td className="px-4 py-2">
+                                  <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
+                                  {e.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
+                                </td>
+                                <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{e.date_fin_prevue || '—'}</td>
+                              </tr>
+                            );
+                          }),
+                        ]),
+                      ];
+                    }),
+                  ])}
                   {evalsProg.length === 0 && (
                     <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucune évaluation pour ces filtres</td></tr>
                   )}

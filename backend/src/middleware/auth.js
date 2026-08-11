@@ -93,6 +93,12 @@ function auth(req, res, next) {
       roles_effectifs: rolesEffectifs(user.role),
     };
 
+    // Mot de passe à changer OBLIGATOIREMENT (première connexion / mot de passe par
+    // défaut) : seul /api/auth/* reste accessible tant que ce n'est pas fait.
+    if (user.must_change_password && !req.originalUrl.split('?')[0].startsWith('/api/auth/')) {
+      return res.status(403).json({ error: 'Vous devez changer votre mot de passe avant de continuer.', mdp_a_changer: true });
+    }
+
     // Visiteurs (Recteur, Vice-Recteur, DES, Scolarité, Membres, Enseignants, Étudiants) :
     // lecture seule du planning annuel uniquement.
     if (ROLES_VISITEURS.includes(user.role) && !accesVisiteurAutorise(req)) {
