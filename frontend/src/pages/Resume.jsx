@@ -113,7 +113,8 @@ export default function Resume() {
   const pole = poles.find(p => p.code === onglet);
   const seg = POLES_SEG[onglet] || POLES_SEG.DFIP;
   const estDfip = onglet === 'DFIP';
-  const voletEval = estDfip || volet === 'EVALUATIONS';
+  // Le volet Tutorat / Évaluations s'applique PARTOUT, y compris à l'onglet DFIP
+  const voletEval = volet === 'EVALUATIONS';
 
   /* ===== Données onglet pôle (volet Tutorat ou Évaluations) ===== */
   const itemsPole = voletEval
@@ -161,6 +162,39 @@ export default function Resume() {
   const nbTerminees = evalsDfip.filter(e => e.etat_eval === 'EVAL_TERMINEES').length;
   const nbDeliberees = evalsDfip.filter(e => e.delib_etat === 'TERMINEE').length;
   const nbReportees = incidents.filter(i => i.conseq_eval === 'REPORT').length;
+
+  /* ===== Onglet DFIP, volet TUTORAT : même hiérarchie Promotions → Pôles → Niveaux ===== */
+  const tutosDfip = tutoratsF.filter(t => !fProg || nomProgramme(t) === fProg)
+    .sort((a, b) => (a.date_debut || '9999').localeCompare(b.date_debut || '9999'));
+  const groupesDfipTut = (() => {
+    const promos = [...new Set(tutosDfip.map(t => t.promotion_code || '—'))]
+      .sort((a, b) => b.localeCompare(a, 'fr', { numeric: true }));
+    return promos.map(promo => {
+      const dePromo = tutosDfip.filter(t => (t.promotion_code || '—') === promo);
+      const poles_ = [...new Set(dePromo.map(t => t.pole_code || '—'))].sort();
+      return {
+        promo, total: dePromo.length,
+        enCours: dePromo.filter(t => etatTutoratAuto(t) === 'EN_COURS').length,
+        termines: dePromo.filter(t => etatTutoratAuto(t) === 'TERMINE').length,
+        poles: poles_.map(pc => {
+          const dePole = dePromo.filter(t => (t.pole_code || '—') === pc);
+          const niveaux = [...NIVEAUX_ORDRE.filter(n => dePole.some(t => t.niveau === n)),
+            ...(dePole.some(t => !NIVEAUX_ORDRE.includes(t.niveau)) ? [null] : [])];
+          return {
+            pole: pc, total: dePole.length,
+            niveaux: niveaux.map(niv => ({
+              niv,
+              items: dePole.filter(t => niv === null ? !NIVEAUX_ORDRE.includes(t.niveau) : t.niveau === niv),
+            })),
+          };
+        }),
+      };
+    });
+  })();
+  const nbTutValidees = tutosDfip.filter(t => t.statut_fiche === 'VALIDEE' || !t.statut_fiche).length;
+  const nbTutEnCours = tutosDfip.filter(t => etatTutoratAuto(t) === 'EN_COURS').length;
+  const nbTutTermines = tutosDfip.filter(t => etatTutoratAuto(t) === 'TERMINE').length;
+  const nbTutSoumises = tutosDfip.filter(t => t.statut_fiche === 'SOUMISE').length;
   /* Encart : programmes en cours avec leur taux d'exécution (tutorat en cours) */
   const enCours = tutoratsF.filter(t => etatTutoratAuto(t) === 'EN_COURS')
     .sort((a, b) => progTut(b) - progTut(a)).slice(0, 6);
@@ -199,17 +233,15 @@ export default function Resume() {
             );
           })}
 
-          {/* Volets Tutorat / Évaluations (onglets pôles uniquement) */}
-          {!estDfip && (
-            <div className="flex rounded-xl border border-slate-200 overflow-hidden ml-1">
-              {[['TUTORAT', BookOpen, 'Tutorat'], ['EVALUATIONS', FlaskConical, 'Évaluations']].map(([v, Icon, label]) => (
-                <button key={v} onClick={() => setVolet(v)}
-                  className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-colors ${volet === v ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
-                  <Icon size={14} /> {label}
-                </button>
-              ))}
-            </div>
-          )}
+          {/* Volets Tutorat / Évaluations — pour les pôles ET pour l'onglet DFIP */}
+          <div className="flex rounded-xl border border-slate-200 overflow-hidden ml-1">
+            {[['TUTORAT', BookOpen, 'Tutorat'], ['EVALUATIONS', FlaskConical, 'Évaluations']].map(([v, Icon, label]) => (
+              <button key={v} onClick={() => setVolet(v)}
+                className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-colors ${volet === v ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>
+                <Icon size={14} /> {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
@@ -321,8 +353,8 @@ export default function Resume() {
             </table>
           </div>
         </div>
-      ) : (
-        /* ================== ONGLET DFIP : PROGRAMMATION DES ÉVALUATIONS ================== */
+      ) : voletEval ? (
+        /* ================== ONGLET DFIP · volet ÉVALUATIONS : PROGRAMMATION ================== */
         <>
           <div className="card !p-0 overflow-hidden">
             <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2563eb)' }}>
@@ -407,6 +439,96 @@ export default function Resume() {
                   ])}
                   {evalsProg.length === 0 && (
                     <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucune évaluation pour ces filtres</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+        </>
+      ) : (
+        /* ================== ONGLET DFIP · volet TUTORAT : SUIVI DU TUTORAT ================== */
+        <>
+          <div className="card !p-0 overflow-hidden">
+            <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #0d9488)' }}>
+              <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi du tutorat</p>
+              <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3">
+                {[['Effectif', tutosDfip.length], ['Validées', nbTutValidees], ['À valider', nbTutSoumises], ['En cours', nbTutEnCours], ['Terminés', nbTutTermines]].map(([l, v]) => (
+                  <div key={l} className="bg-white/12 border border-white/20 rounded-xl px-3 py-2 text-center">
+                    <p className="text-xl font-bold tabular-nums">{v}</p>
+                    <p className="text-[11px] text-white/75 uppercase tracking-wide">{l}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className="overflow-x-auto nav-scroll">
+              <table className="w-full text-sm min-w-[820px]">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200">
+                    <th className="text-left px-4 py-2.5 table-header">Semestre</th>
+                    <th className="text-left px-4 py-2.5 table-header">Date de début</th>
+                    <th className="text-left px-4 py-2.5 table-header">Date de fin</th>
+                    <th className="text-left px-4 py-2.5 table-header">Programme</th>
+                    <th className="text-left px-4 py-2.5 table-header">État</th>
+                    <th className="text-left px-4 py-2.5 table-header w-44">Progression</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {/* Hiérarchie : PROMOTION → PÔLE → NIVEAU → fiches de tutorat */}
+                  {groupesDfipTut.map(g => [
+                    <tr key={`tpromo-${g.promo}`} style={{ background: '#1e3a5f' }}>
+                      <td colSpan={4} className="px-4 py-2 font-bold text-white text-sm tracking-wide">
+                        🎓 PROMOTION {g.promo}
+                      </td>
+                      <td colSpan={2} className="px-4 py-2 text-right text-[11px] font-semibold text-blue-100">
+                        {g.total} fiche(s) · {g.enCours} en cours · {g.termines} terminé(s)
+                      </td>
+                    </tr>,
+                    ...g.poles.map(gp => {
+                      const seg = POLES_SEG[gp.pole] || { color: '#64748b', light: '#f1f5f9' };
+                      return [
+                        <tr key={`tpromo-${g.promo}-pole-${gp.pole}`} style={{ background: seg.light }}>
+                          <td colSpan={4} className="px-4 py-1.5 font-bold text-[13px]" style={{ color: seg.color }}>
+                            <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: seg.color }} />
+                            Pôle {gp.pole}
+                          </td>
+                          <td colSpan={2} className="px-4 py-1.5 text-right text-[11px] font-semibold" style={{ color: seg.color }}>
+                            {gp.total} fiche(s)
+                          </td>
+                        </tr>,
+                        ...gp.niveaux.map(gn => [
+                          <tr key={`tpromo-${g.promo}-pole-${gp.pole}-niv-${gn.niv || 'autres'}`} className="bg-slate-50 border-b border-slate-200">
+                            <td colSpan={6} className="px-6 py-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                              {gn.niv ? NIVEAU_LABEL[gn.niv] : 'Autres niveaux'} <span className="font-normal normal-case">— {gn.items.length} programme(s) suivi(s)</span>
+                            </td>
+                          </tr>,
+                          ...gn.items.map(t => {
+                            const [lbl, cls] = ETAT_TUT[etatTutoratAuto(t)] || ETAT_TUT.PAS_DEMARRE;
+                            const pc = POLES_SEG[t.pole_code]?.color || '#64748b';
+                            return (
+                              <tr key={t.id} className="border-b border-slate-50 hover:bg-slate-50/60">
+                                <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(t)}</td>
+                                <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_debut || t.date_demarree_le || '—'}</td>
+                                <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{t.date_fin || t.date_terminee_le || '—'}</td>
+                                <td className="px-4 py-2">
+                                  <span className="inline-block w-2 h-2 rounded-full mr-1.5" style={{ background: pc }} />
+                                  <span className="font-medium text-slate-800" title={t.formation_nom || ''}>{nomProgramme(t)}</span>
+                                  {t.statut_fiche === 'SOUMISE' && <span className="badge bg-amber-100 text-amber-800 text-[10px] ml-1.5">⏳ À valider</span>}
+                                  {t.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
+                                </td>
+                                <td className="px-4 py-2"><span className={`badge ${cls} text-[11px]`}>{lbl}</span></td>
+                                <td className="px-4 py-2"><Barre pct={progTut(t)} /></td>
+                              </tr>
+                            );
+                          }),
+                        ]),
+                      ];
+                    }),
+                  ])}
+                  {tutosDfip.length === 0 && (
+                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucune fiche de tutorat pour ces filtres</td></tr>
                   )}
                 </tbody>
               </table>
