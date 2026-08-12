@@ -120,7 +120,75 @@ function ModalResetPassword({ user, onClose, onDone }) {
   );
 }
 
-function ModalUser({ poles, enos = [], user: editUser, onClose, onSaved }) {
+/* ===== Gestion des PROFILS PERSONNALISÉS (Administrateur) =====
+   Un profil = nom + description + PRIVILÈGES hérités d'un rôle de base ;
+   le périmètre est celui du rôle de base + le pôle/ENO affecté au compte. */
+function ModalProfil({ profil, onClose, onDone }) {
+  const edition = !!profil;
+  const [f, setF] = useState({
+    nom: profil?.nom || '', description: profil?.description || '',
+    base_role: profil?.base_role || 'MEMBRE_POLE', actif: profil ? profil.actif : 1,
+  });
+  const [loading, setLoading] = useState(false);
+
+  async function submit(e) {
+    e.preventDefault();
+    if (!f.nom.trim()) return toast.error('Le nom du profil est requis');
+    setLoading(true);
+    try {
+      if (edition) await api.put(`/profils/${profil.id}`, f);
+      else await api.post('/profils', f);
+      toast.success(edition ? 'Profil modifié' : 'Profil créé — il apparaît maintenant dans la liste des rôles');
+      onDone();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+    finally { setLoading(false); }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto nav-scroll">
+        <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white">
+          <h2 className="font-semibold text-slate-800">{edition ? 'Modifier le profil' : 'Nouveau profil personnalisé'}</h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+        <form onSubmit={submit} className="p-5 space-y-4">
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Nom du profil *</label>
+            <input value={f.nom} onChange={e => setF(x => ({ ...x, nom: e.target.value }))}
+              placeholder="Ex : Assistant DFE, Superviseur ENO Nord…" autoFocus />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Description</label>
+            <textarea value={f.description} onChange={e => setF(x => ({ ...x, description: e.target.value }))}
+              rows={2} placeholder="À quoi sert ce profil, qui le porte…" className="resize-y" />
+          </div>
+          <div>
+            <label className="text-sm font-medium text-slate-700 block mb-1">Privilèges — hérités du rôle *</label>
+            <select value={f.base_role} onChange={e => setF(x => ({ ...x, base_role: e.target.value }))}>
+              {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r] || r}</option>)}
+            </select>
+            <p className="text-xs text-slate-500 mt-1.5 bg-slate-50 border border-slate-100 rounded-xl p-2.5">
+              🔐 Le profil dispose <strong>exactement des privilèges</strong> du rôle choisi (créations, validations, restrictions).
+              Son <strong>périmètre</strong> (pôle, ENO) se définit sur chaque compte utilisateur lors de son affectation.
+            </p>
+          </div>
+          {edition && (
+            <label className="flex items-center gap-2 text-sm text-slate-700">
+              <input type="checkbox" checked={!!f.actif} onChange={e => setF(x => ({ ...x, actif: e.target.checked ? 1 : 0 }))} className="accent-[#1e3a5f]" />
+              Profil actif <span className="text-xs text-slate-400">(désactivé : les comptes rattachés ne peuvent plus se connecter)</span>
+            </label>
+          )}
+          <div className="flex gap-2 pt-1">
+            <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
+            <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? '...' : edition ? 'Enregistrer' : 'Créer le profil'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function ModalUser({ poles, enos = [], profils = [], user: editUser, onClose, onSaved }) {
   const [form, setForm] = useState(editUser ? {
     nom: editUser.nom, prenom: editUser.prenom || '', email: editUser.email,
     role: editUser.role, pole_id: editUser.pole_id || '', eno_id: editUser.eno_id || '', service: editUser.service || '',
@@ -182,9 +250,18 @@ function ModalUser({ poles, enos = [], user: editUser, onClose, onSaved }) {
           </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Rôle *</label>
+              <label className="text-sm font-medium text-slate-700 block mb-1">Rôle / Profil *</label>
               <select value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value }))} required>
-                {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                <optgroup label="Rôles standards">
+                  {ROLES.map(r => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
+                </optgroup>
+                {profils.filter(p => p.actif).length > 0 && (
+                  <optgroup label="Profils personnalisés">
+                    {profils.filter(p => p.actif).map(p => (
+                      <option key={p.code} value={p.code}>{p.nom} (privilèges : {p.base_role_label || p.base_role})</option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
             </div>
             <div>
@@ -195,9 +272,10 @@ function ModalUser({ poles, enos = [], user: editUser, onClose, onSaved }) {
               </select>
             </div>
           </div>
-          {form.role === 'CHARGE_SCOLARITE' && (
+          {/* Périmètre ENO : requis quand le rôle (ou le rôle de base du profil) est Chargé de scolarité */}
+          {(form.role === 'CHARGE_SCOLARITE' || profils.find(p => p.code === form.role)?.base_role === 'CHARGE_SCOLARITE') && (
             <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">ENO rattaché *</label>
+              <label className="text-sm font-medium text-slate-700 block mb-1">ENO rattaché (périmètre) *</label>
               <select value={form.eno_id} onChange={e => setForm(f => ({ ...f, eno_id: e.target.value }))} required>
                 <option value="">Choisir un ENO...</option>
                 {enos.map(e => <option key={e.id} value={e.id}>ENO {e.nom}</option>)}
@@ -228,11 +306,27 @@ export default function Utilisateurs() {
   const [modal, setModal] = useState(null); // null | 'new' | user_object
 
   const [enos, setEnos] = useState([]);
+  const [profils, setProfils] = useState([]);
+  const [profilModal, setProfilModal] = useState(null); // null | 'new' | profil
+  const estAdmin = me?.role === 'ADMIN_PORTAIL';
   function load() {
     setLoading(true);
-    Promise.all([api.get('/users'), api.get('/poles'), api.get('/statistiques/eno').catch(() => ({ data: [] }))])
-      .then(([u, p, e]) => { setUsers(u.data); setPoles(p.data); setEnos(e.data); })
+    Promise.all([
+      api.get('/users'), api.get('/poles'),
+      api.get('/statistiques/eno').catch(() => ({ data: [] })),
+      api.get('/profils').catch(() => ({ data: [] })),
+    ])
+      .then(([u, p, e, pr]) => { setUsers(u.data); setPoles(p.data); setEnos(e.data); setProfils(pr.data); })
       .finally(() => setLoading(false));
+  }
+
+  async function supprimerProfil(p) {
+    if (!confirm(`Supprimer le profil « ${p.nom} » ?`)) return;
+    try {
+      await api.delete(`/profils/${p.id}`);
+      toast.success('Profil supprimé');
+      load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
 
   useEffect(load, []);
@@ -272,6 +366,41 @@ export default function Utilisateurs() {
         </button>
       </div>
 
+      {/* PROFILS PERSONNALISÉS : créés par l'administrateur, privilèges hérités d'un rôle de base */}
+      {estAdmin && (
+        <div className="card">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <h2 className="font-semibold text-slate-800">🎭 Profils personnalisés</h2>
+            <span className="text-xs text-slate-400">({profils.length})</span>
+            <button onClick={() => setProfilModal('new')} className="ml-auto text-sm font-semibold text-blue-700 border border-blue-200 bg-white rounded-lg px-2.5 py-1 hover:bg-blue-50 flex items-center gap-1">
+              <Plus size={13} /> Nouveau profil
+            </button>
+          </div>
+          {profils.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">
+              Aucun profil personnalisé. Créez-en un pour définir un intitulé propre (ex : « Assistant DFE ») avec les privilèges d'un rôle existant —
+              le périmètre (pôle / ENO) se définit ensuite sur chaque compte.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              {profils.map(p => (
+                <div key={p.id} className={`flex items-center gap-3 flex-wrap bg-slate-50 rounded-xl px-3 py-2 text-sm ${!p.actif ? 'opacity-50' : ''}`}>
+                  <span className="badge bg-cyan-100 text-cyan-800 font-bold">{p.nom}</span>
+                  <span className="text-xs text-slate-500">privilèges : <strong>{p.base_role_label || p.base_role}</strong></span>
+                  {p.description && <span className="text-xs text-slate-400 truncate max-w-72" title={p.description}>· {p.description}</span>}
+                  <span className="text-xs text-slate-400">· {p.nb_utilisateurs} compte(s)</span>
+                  {!p.actif && <span className="badge bg-slate-200 text-slate-500 text-[10px]">Inactif</span>}
+                  <span className="ml-auto flex items-center gap-1">
+                    <button onClick={() => setProfilModal(p)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Modifier"><Edit size={14} /></button>
+                    <button onClick={() => supprimerProfil(p)} className="p-1.5 text-red-400 hover:bg-red-50 rounded" title="Supprimer (impossible si des comptes l'utilisent)">🗑</button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="card overflow-hidden p-0">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 border-b border-slate-200">
@@ -300,7 +429,7 @@ export default function Utilisateurs() {
                 </td>
                 <td className="px-4 py-3 text-slate-600">{u.email}</td>
                 <td className="px-4 py-3">
-                  <span className={`badge ${ROLE_COLORS[u.role]}`}>{ROLE_LABELS[u.role] || u.role}</span>
+                  <span className={`badge ${ROLE_COLORS[u.role] || 'bg-cyan-100 text-cyan-800'}`}>{u.role_label || ROLE_LABELS[u.role] || u.role}</span>
                 </td>
                 <td className="px-4 py-3 text-slate-500">{u.pole_nom || '—'}</td>
                 <td className="px-4 py-3">
@@ -337,6 +466,11 @@ export default function Utilisateurs() {
         </table>
       </div>
 
+      {profilModal && (
+        <ModalProfil profil={profilModal === 'new' ? null : profilModal}
+          onClose={() => setProfilModal(null)} onDone={() => { setProfilModal(null); load(); }} />
+      )}
+
       {resetModal && (
         <ModalResetPassword user={resetModal} onClose={() => setResetModal(null)} onDone={load} />
       )}
@@ -345,6 +479,7 @@ export default function Utilisateurs() {
         <ModalUser
           poles={poles}
           enos={enos}
+          profils={profils}
           user={modal === 'new' ? null : modal}
           onClose={() => setModal(null)}
           onSaved={load}

@@ -17,7 +17,9 @@ router.get('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_SERVICE'),
     LEFT JOIN poles p ON p.id = u.pole_id
     ORDER BY u.nom
   `).all();
-  res.json(users.map(u => ({ ...u, role_label: ROLE_LABELS[u.role] || u.role })));
+  // Libellés des profils personnalisés (rôles hors référentiel)
+  const profilsMap = Object.fromEntries(db.prepare('SELECT code, nom FROM profils').all().map(p => [p.code, p.nom]));
+  res.json(users.map(u => ({ ...u, role_label: ROLE_LABELS[u.role] || profilsMap[u.role] || u.role })));
 });
 
 // GET /api/users/online — utilisateurs en ligne

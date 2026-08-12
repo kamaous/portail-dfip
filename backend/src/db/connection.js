@@ -616,6 +616,23 @@ function runMigrations() {
     tentatives_echouees: 'INTEGER NOT NULL DEFAULT 0',
   });
 
+  // PROFILS PERSONNALISÉS créés par l'administrateur : un profil porte un nom
+  // propre, hérite des PRIVILÈGES d'un rôle de base, et son périmètre est celui
+  // du rôle de base + le pôle/ENO affecté au compte utilisateur.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS profils (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      code TEXT NOT NULL UNIQUE,        -- ex : PROFIL_ASSISTANT_DFE (valeur stockée dans users.role)
+      nom TEXT NOT NULL,                -- libellé affiché (badge, listes)
+      description TEXT,
+      base_role TEXT NOT NULL,          -- rôle dont le profil hérite les privilèges
+      actif INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (created_by) REFERENCES users(id)
+    );
+  `);
+
   // Paramètres de plateforme (clé → valeur) — ex : contrainte_plages ('0'|'1'),
   // pilotée par le Directeur DES
   db.exec(`

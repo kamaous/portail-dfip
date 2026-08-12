@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const { JWT_SECRET, ROLE_HERITAGE, ROLES_VISITEURS, ROLE_ALIAS } = require('../config');
+const { JWT_SECRET, ROLE_HERITAGE, ROLES_VISITEURS, ROLE_ALIAS, ROLES } = require('../config');
 const { getDb } = require('../db/connection');
 
 /* Rôles effectifs d'un utilisateur (alias + héritage inclus).
@@ -83,14 +83,28 @@ function auth(req, res, next) {
     const user = db.prepare('SELECT * FROM users WHERE id = ? AND actif = 1').get(payload.id);
     if (!user) return res.status(401).json({ error: 'Compte désactivé' });
 
+    // PROFILS PERSONNALISÉS : un rôle absent du référentiel est un profil créé
+    // par l'administrateur → il hérite des PRIVILÈGES de son rôle de base
+    // (le périmètre pôle/ENO reste celui affecté au compte).
+    let roleBase = user.role;
+    let profil = null;
+    if (!ROLES.includes(user.role)) {
+      profil = db.prepare('SELECT * FROM profils WHERE code = ? AND actif = 1').get(user.role);
+      if (!profil) {
+        return res.status(403).json({ error: 'Profil désactivé ou inconnu — contactez l\'administrateur.' });
+      }
+      roleBase = profil.base_role;
+    }
+
     // Alias de droits : le rôle est traité comme son rôle cible partout dans l'API
     // (COORDONNATEUR → ADMIN_PORTAIL, DIRECTEUR_DES → DIRECTEUR) ; role_reel conserve l'original.
     req.user = {
       ...payload, ...user,
-      role: ROLE_ALIAS[user.role] || user.role,
+      role: ROLE_ALIAS[roleBase] || roleBase,
       role_reel: user.role,
+      profil_nom: profil?.nom || null,
       session_id: session.id,
-      roles_effectifs: rolesEffectifs(user.role),
+      roles_effectifs: profil ? [user.role, ...rolesEffectifs(roleBase)] : rolesEffectifs(user.role),
     };
 
     // Mot de passe à changer OBLIGATOIREMENT (première connexion / mot de passe par
@@ -100,13 +114,13 @@ function auth(req, res, next) {
     }
 
     // Visiteurs (Recteur, Vice-Recteur, DES, Scolarité, Membres, Enseignants, Étudiants) :
-    // lecture seule du planning annuel uniquement.
-    if (ROLES_VISITEURS.includes(user.role) && !accesVisiteurAutorise(req)) {
+    // lecture seule du planning annuel uniquement. (roleBase couvre aussi les profils.)
+    if (ROLES_VISITEURS.includes(roleBase) && !accesVisiteurAutorise(req)) {
       return res.status(403).json({ error: 'Accès visiteur : consultation du planning annuel uniquement.' });
     }
 
     // Chargé de la Scolarité (ENO) : module Statistiques (capacités de SON ENO) + planning en lecture
-    if (user.role === 'CHARGE_SCOLARITE') {
+    if (roleBase === 'CHARGE_SCOLARITE') {
       const url = req.originalUrl.split('?')[0];
       const ok = url.startsWith('/api/auth/')
         || url.startsWith('/api/statistiques')
@@ -115,7 +129,7 @@ function auth(req, res, next) {
     }
 
     // Directeur DEVES : module Statistiques (ajout/gestion des ENO) + planning en lecture
-    if (user.role === 'DIRECTEUR_DEVES') {
+    if (roleBase === 'DIRECTEUR_DEVES') {
       const url = req.originalUrl.split('?')[0];
       const ok = url.startsWith('/api/auth/')
         || url.startsWith('/api/statistiques')

@@ -3,18 +3,23 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('crypto').randomUUID ? { v4: () => require('crypto').randomUUID() } : require('crypto');
 const { getDb } = require('../db/connection');
-const { JWT_SECRET, JWT_EXPIRES_IN, ROLE_LABELS, ROLE_ALIAS } = require('../config');
+const { JWT_SECRET, JWT_EXPIRES_IN, ROLE_LABELS, ROLE_ALIAS, ROLES } = require('../config');
 
 /* Le front reçoit le rôle EFFECTIF (alias appliqué : Coordonnateur → Admin,
-   DES → Directeur) pour que tous ses contrôles d'accès fonctionnent,
-   et le libellé du rôle réel pour l'affichage. */
-function userPourFront(user) {
+   DES → Directeur ; profils personnalisés → leur rôle de base) pour que tous
+   ses contrôles d'accès fonctionnent, et le libellé réel pour l'affichage. */
+function userPourFront(user, db) {
   const { password_hash, ...safe } = user;
+  let base = user.role, label = ROLE_LABELS[user.role] || user.role;
+  if (!ROLES.includes(user.role) && db) {
+    const prof = db.prepare('SELECT nom, base_role FROM profils WHERE code = ?').get(user.role);
+    if (prof) { base = prof.base_role; label = prof.nom; }
+  }
   return {
     ...safe,
-    role: ROLE_ALIAS[user.role] || user.role,
+    role: ROLE_ALIAS[base] || base,
     role_reel: user.role,
-    role_label: ROLE_LABELS[user.role] || user.role,
+    role_label: label,
   };
 }
 const { auth } = require('../middleware/auth');
@@ -109,7 +114,7 @@ router.post('/login', (req, res) => {
 
   res.json({
     token,
-    user: userPourFront(user),
+    user: userPourFront(user, db),
     must_change_password: !!user.must_change_password
   });
 });
@@ -177,7 +182,7 @@ router.get('/me', auth, (req, res) => {
   const nonLues = db.prepare('SELECT COUNT(*) as cnt FROM notifications WHERE user_id = ? AND lue = 0').get(req.user.id);
 
   res.json({
-    user: userPourFront(user),
+    user: userPourFront(user, db),
     notifications_non_lues: nonLues.cnt
   });
 });
