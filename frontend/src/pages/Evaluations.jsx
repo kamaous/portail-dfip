@@ -50,16 +50,89 @@ const POLES_SEG = {
 };
 const ETAT_BAR = { CALENDRIER_DISPONIBLE: null, EVAL_EN_COURS: '#f59e0b', EVAL_TERMINEES: '#16a34a' };
 
-/* ===== Modal de création (Responsable de formation, dates dans les plages du planning) ===== */
-function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose, onCreated, onConflit }) {
+/* Ligne d'une évaluation au sein d'une création multiple : une formation du même
+   pôle + de la même promotion, avec SA PROPRE période (les évaluations sont
+   éclatées — une par formation, chacune avec ses dates et son propre contrôle
+   de capacité ENO / proposition de groupes G1-G2). */
+function LigneFormationEvaluation({ ligne, index, formations, formationsExclues, promotion_id, niveau, heure_debut, heure_fin, plages, contrainte, onChange, onRemove, canRemove, erreur }) {
+  const dispo = formations.filter(f => !formationsExclues.includes(String(f.id)) || String(f.id) === ligne.formation_id);
+
+  const [capaciteLive, setCapaciteLive] = useState(null);
+  const [groupesRequis, setGroupesRequis] = useState([]);
+  useEffect(() => {
+    setCapaciteLive(null);
+    if (!ligne.formation_id || !promotion_id || !niveau) { setGroupesRequis([]); return; }
+    api.post('/evaluations/check-conflit', {
+      formation_id: ligne.formation_id, promotion_id, niveau,
+      date_demarrage: ligne.date_demarrage, date_fin_prevue: ligne.date_fin_prevue,
+      heure_debut, heure_fin, groupe: ligne.groupe || null,
+    }).then(r => { setCapaciteLive(r.data.capacite || null); setGroupesRequis(r.data.groupes_requis || []); }).catch(() => {});
+  }, [ligne.formation_id, promotion_id, niveau, ligne.date_demarrage, ligne.date_fin_prevue, heure_debut, heure_fin, ligne.groupe]);
+
+  const horsPlage = plages?.length > 0 && ligne.date_demarrage && ligne.date_fin_prevue &&
+    !plages.some(p => ligne.date_demarrage >= p.date_debut && ligne.date_fin_prevue <= p.date_fin);
+
+  return (
+    <div className={`border rounded-xl p-3 space-y-2 ${erreur ? 'border-red-300 bg-red-50/50' : 'border-slate-200 bg-slate-50/60'}`}>
+      <div className="flex items-center gap-2">
+        <select value={ligne.formation_id} onChange={e => onChange(index, { formation_id: e.target.value })} required className="flex-1">
+          <option value="">Formation {index + 1}...</option>
+          {dispo.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+        </select>
+        {canRemove && (
+          <button type="button" onClick={() => onRemove(index)} title="Retirer cette formation"
+            className="p-2 text-red-400 hover:bg-red-50 rounded-lg shrink-0"><Trash2 size={15} /></button>
+        )}
+      </div>
+
+      <PlageDates compact debut={ligne.date_demarrage} fin={ligne.date_fin_prevue}
+        onChange={({ debut, fin }) => onChange(index, { date_demarrage: debut, date_fin_prevue: fin })} />
+
+      {/* GROUPES : proposés automatiquement quand l'effectif dépasse la capacité d'un ENO */}
+      {groupesRequis.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1.5">
+          <p className="text-[11px] text-amber-800">
+            👥 <strong>Effectif supérieur à la capacité</strong> dans : {groupesRequis.map(g => `${g.eno} (${g.effectif}/${g.capacite})`).join(' · ')}.
+          </p>
+          <div className="flex gap-1.5">
+            {[['', 'Toute la promotion'], ['G1', 'Groupe 1'], ['G2', 'Groupe 2']].map(([v, l]) => (
+              <button type="button" key={v} onClick={() => onChange(index, { groupe: v })}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border-2 ${ligne.groupe === v ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
+                {l}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {horsPlage && (contrainte
+        ? <p className="text-[11px] text-red-600 font-medium">⛔ Dates hors des plages du Planning annuel — l'enregistrement sera refusé.</p>
+        : <p className="text-[11px] text-amber-600 font-medium">⚠ Dates hors des plages du Planning annuel (information).</p>)}
+      {capaciteLive && (
+        <div className="bg-red-50 border-2 border-red-200 rounded-lg p-2 text-[11px] text-red-700">
+          ⛔ Capacité ENO dépassée : {capaciteLive.satures.map(s => `${s.eno} (${s.demande}/${s.capacite}, manque ${s.manque})`).join(' · ')}.
+        </div>
+      )}
+      {erreur && <p className="text-[11px] text-red-600 font-medium">⚠ {erreur}</p>}
+    </div>
+  );
+}
+
+/* ===== Modal de création (Responsable de formation, dates dans les plages du planning) =====
+   Une ou plusieurs formations du même pôle et de la même promotion à la fois :
+   chaque formation obtient sa propre évaluation (fiche éclatée), avec sa propre
+   période — les autres champs (année, type, session, créneau horaire) sont partagés. */
+function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose, onCreated }) {
   const estRF = user?.role === 'RESPONSABLE_FORMATION'; // pôle verrouillé pour le Responsable de formation
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',
-    formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
-    session_num: 1, type_evaluation: 'EVALUATION', date_demarrage: defaultDate || '', date_fin_prevue: '',
-    heure_debut: '08:30', heure_fin: '17:30', groupe: '',   // créneau standard par défaut
+    promotion_id: '', niveau: '', semestre_code: '',
+    session_num: 1, type_evaluation: 'EVALUATION',
+    heure_debut: '08:30', heure_fin: '17:30',   // créneau standard par défaut
   });
+  const ligneVide = () => ({ formation_id: '', date_demarrage: defaultDate || '', date_fin_prevue: '', groupe: '' });
+  const [lignes, setLignes] = useState([ligneVide()]);
+  const [erreurs, setErreurs] = useState({});
   const [plages, setPlages] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -75,46 +148,57 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
   useEffect(() => {
     api.get('/parametres/contrainte-plages').then(r => setContrainte(!!r.data.active)).catch(() => {});
   }, []);
-  const horsPlage = plages?.length > 0 && form.date_demarrage && form.date_fin_prevue &&
-    !plages.some(p => form.date_demarrage >= p.date_debut && form.date_fin_prevue <= p.date_fin);
 
-  // Pré-contrôle de CAPACITÉ des ENO en direct (effectifs cumulés vs capacités)
-  // + détection des ENO où l'effectif dépasse à lui seul la capacité → groupes G1/G2
-  const [capaciteLive, setCapaciteLive] = useState(null);
-  const [groupesRequis, setGroupesRequis] = useState([]);
-  useEffect(() => {
-    setCapaciteLive(null);
-    if (!form.formation_id || !form.promotion_id || !form.niveau) { setGroupesRequis([]); return; }
-    api.post('/evaluations/check-conflit', {
-      formation_id: form.formation_id, promotion_id: form.promotion_id, niveau: form.niveau,
-      date_demarrage: form.date_demarrage, date_fin_prevue: form.date_fin_prevue,
-      heure_debut: form.heure_debut, heure_fin: form.heure_fin, groupe: form.groupe || null,
-    }).then(r => { setCapaciteLive(r.data.capacite || null); setGroupesRequis(r.data.groupes_requis || []); }).catch(() => {});
-  }, [form.formation_id, form.promotion_id, form.niveau, form.date_demarrage, form.date_fin_prevue, form.heure_debut, form.heure_fin, form.groupe]);
+  // Changement de pôle ou de niveau : les formations disponibles changent, on repart d'une ligne vide
+  useEffect(() => { setLignes([ligneVide()]); setErreurs({}); }, [form.pole_id, form.niveau]);
+
+  const pole = poles.find(p => p.id === parseInt(form.pole_id));
+  const cycle = form.niveau ? NIVEAUX[form.niveau]?.cycle : null;
+  const formationsPole = (pole?.formations || []).filter(f => !cycle || f.cycle === cycle);
+
+  function majLigne(i, patch) { setLignes(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l)); }
+  function ajouterLigne() { setLignes(ls => [...ls, ligneVide()]); }
+  function retirerLigne(i) { setLignes(ls => ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls); }
 
   async function submit(e) {
     e.preventDefault();
-    if (!form.formation_id) return toast.error('Sélectionnez une formation');
-    if (!form.date_demarrage || !form.date_fin_prevue) return toast.error('Dates de démarrage et de clôture requises');
+    if (!form.pole_id || !form.promotion_id) return toast.error('Sélectionnez un pôle et une promotion');
+    if (!form.niveau || !form.semestre_code) return toast.error('Sélectionnez un niveau et un semestre');
+    for (const l of lignes) {
+      if (!l.formation_id) return toast.error('Sélectionnez une formation pour chaque ligne');
+      if (!l.date_demarrage || !l.date_fin_prevue) return toast.error('Dates de démarrage et de clôture requises pour chaque formation');
+    }
+    const ids = lignes.map(l => l.formation_id);
+    if (new Set(ids).size !== ids.length) return toast.error('Une même formation ne peut apparaître qu\'une seule fois');
+
     setLoading(true);
-    try {
-      await api.post('/evaluations', form);
-      toast.success('Évaluation enregistrée — concernés notifiés');
-      onCreated(); onClose();
-    } catch (err) {
-      if (err.response?.data?.conflit) {
-        onConflit(err.response.data);   // popup explicite de conflit inter-pôles
-      } else {
-        toast.error(err.response?.data?.error || 'Erreur', { duration: 6000 });
-      }
-    } finally { setLoading(false); }
+    const resultats = await Promise.allSettled(lignes.map(l => api.post('/evaluations', {
+      ...form, formation_id: l.formation_id, date_demarrage: l.date_demarrage,
+      date_fin_prevue: l.date_fin_prevue, groupe: l.groupe || null,
+    })));
+    setLoading(false);
+
+    const echecs = lignes
+      .map((l, i) => ({ ligne: l, erreur: resultats[i].status === 'rejected' ? (resultats[i].reason?.response?.data?.error || 'Erreur') : null }))
+      .filter(x => x.erreur);
+    const succes = lignes.length - echecs.length;
+
+    if (succes > 0) { toast.success(`${succes} évaluation(s) enregistrée(s) — concernés notifiés`); onCreated(); }
+    if (echecs.length === 0) {
+      onClose();
+    } else {
+      // Ne restent affichées que les formations en échec, pour correction et nouvel essai
+      setLignes(echecs.map(x => x.ligne));
+      setErreurs(Object.fromEntries(echecs.map((x, idx) => [idx, x.erreur])));
+      toast.error(`${echecs.length} formation(s) n'ont pas pu être enregistrées — corrigez et réessayez`, { duration: 6000 });
+    }
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white z-10">
-          <h2 className="font-semibold text-slate-800">Nouvelle évaluation</h2>
+          <h2 className="font-semibold text-slate-800">Nouvelle(s) évaluation(s)</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
@@ -143,7 +227,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
             </div>
           </div>
 
-          <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
+          <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} hideFormation />
 
           {/* Plages du Planning annuel — bloquantes ou indicatives selon l'option du DES */}
           {form.pole_id && plages !== null && plages.length > 0 && (
@@ -160,12 +244,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
             </div>
           )}
 
-          <div>
-            <label className="text-sm font-medium text-slate-700 block mb-1">Période de l'évaluation (démarrage → clôture) *</label>
-            <PlageDates debut={form.date_demarrage} fin={form.date_fin_prevue}
-              onChange={({ debut, fin }) => setForm(f => ({ ...f, date_demarrage: debut, date_fin_prevue: fin }))} />
-          </div>
-          {/* Créneau horaire quotidien : la simultanéité exacte (deux créneaux disjoints ne se cumulent pas) */}
+          {/* Créneau horaire quotidien — partagé par toutes les formations de cette création */}
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-sm font-medium text-slate-700 block mb-1">Heure de début *</label>
@@ -180,39 +259,36 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
             🕐 Le créneau permet la programmation simultanée : deux évaluations aux mêmes dates mais à des heures différentes ne se cumulent pas dans les ENO.
           </p>
 
-          {/* GROUPES : proposés automatiquement quand l'effectif dépasse la capacité d'un ENO */}
-          {groupesRequis.length > 0 && (
-            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 space-y-2">
-              <p className="text-xs text-amber-800">
-                👥 <strong>Effectif supérieur à la capacité d'accueil</strong> dans :{' '}
-                {groupesRequis.map(g => `${g.eno} (${g.effectif} étud. / ${g.capacite} places)`).join(' · ')}.
-                <br />La promotion est automatiquement scindée en <strong>2 groupes</strong> — programmez chaque groupe sur son propre créneau.
-              </p>
-              <div className="flex gap-2">
-                {[['', 'Toute la promotion'], ['G1', 'Groupe 1'], ['G2', 'Groupe 2']].map(([v, l]) => (
-                  <button type="button" key={v} onClick={() => setForm(f => ({ ...f, groupe: v }))}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border-2 ${form.groupe === v ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
-                    {l}
-                  </button>
-                ))}
+          {/* Une ou plusieurs formations du même pôle et de la même promotion — chacune avec sa période */}
+          {form.pole_id && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-slate-700">Formation(s) et période(s) *</label>
+                <span className="text-xs text-slate-400">{lignes.length} formation{lignes.length > 1 ? 's' : ''}</span>
               </div>
-              {form.groupe && <p className="text-[11px] text-amber-700">Seule la moitié de l'effectif ({form.groupe === 'G1' ? 'Groupe 1' : 'Groupe 2'}) sera comptée dans les ENO pour ce créneau.</p>}
-            </div>
-          )}
-          {horsPlage && (contrainte
-            ? <p className="text-xs text-red-600 font-medium -mt-2">⛔ Ces dates sortent des plages du Planning annuel — la contrainte est active, l'enregistrement sera refusé.</p>
-            : <p className="text-xs text-amber-600 font-medium -mt-2">⚠ Ces dates sortent des plages du Planning annuel (information — la création reste possible).</p>)}
-          {capaciteLive && (
-            <div className="bg-red-50 border-2 border-red-200 rounded-xl p-3 text-xs text-red-700 -mt-1">
-              ⛔ <strong>Capacité des ENO dépassée sur cette période :</strong>{' '}
-              {capaciteLive.satures.map(s => `${s.eno} (${s.demande}/${s.capacite}, manque ${s.manque})`).join(' · ')}.
-              L'enregistrement sera refusé — changez les dates ou répartissez sur d'autres créneaux.
+              {lignes.map((l, i) => (
+                <LigneFormationEvaluation key={i} index={i} ligne={l}
+                  formations={formationsPole}
+                  formationsExclues={lignes.filter((_, idx) => idx !== i).map(x => x.formation_id).filter(Boolean)}
+                  promotion_id={form.promotion_id} niveau={form.niveau}
+                  heure_debut={form.heure_debut} heure_fin={form.heure_fin}
+                  plages={plages} contrainte={contrainte}
+                  onChange={majLigne} onRemove={retirerLigne} canRemove={lignes.length > 1}
+                  erreur={erreurs[i]} />
+              ))}
+              <button type="button" onClick={ajouterLigne} disabled={lignes.length >= formationsPole.length}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border-2 border-dashed border-slate-300 text-sm font-medium text-slate-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:text-slate-500">
+                <Plus size={15} /> Ajouter une formation du même pôle et de la même promotion
+              </button>
+              <p className="text-[11px] text-slate-400">Une évaluation distincte sera enregistrée pour chaque formation, avec sa propre période.</p>
             </div>
           )}
 
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
-            <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? '...' : 'Enregistrer'}</button>
+            <button type="submit" disabled={loading} className="btn-primary flex-1">
+              {loading ? '...' : lignes.length > 1 ? `Enregistrer ${lignes.length} évaluations` : 'Enregistrer'}
+            </button>
           </div>
         </form>
       </div>
@@ -356,6 +432,10 @@ export default function Evaluations() {
     (!fFormation || (s.formation_code || s.formation_nom) === fFormation) &&
     (!fSemestre || s.semestre_code === fSemestre) &&
     (!fPromo || s.promotion_code === fPromo));
+  // En mode Cartes/Liste, seules les évaluations RATTACHÉES À UNE FORMATION comptent —
+  // les plages pôle entières issues du Planning annuel (sans formation) restent
+  // visibles uniquement dans le calendrier (bande pointillée de la vue Planning).
+  const affichesFormations = affiches.filter(s => s.formation_id);
   const detail = items.find(s => s.id === detailId);
   const selectionnables = affiches.filter(s => s.etat_eval === 'EVAL_TERMINEES' && s.delib_etat !== 'TERMINEE' && s.pole_id === user?.pole_id);
   const toggleSel = id => setSelection(sel => sel.includes(id) ? sel.filter(x => x !== id) : [...sel, id]);
@@ -457,10 +537,12 @@ export default function Evaluations() {
 
       {loading ? (
         <div className="flex justify-center h-32 items-center"><div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>
-      ) : affiches.length === 0 ? (
+      ) : (vue === 'LISTE' || vue === 'CARTES') && affichesFormations.length === 0 ? (
+        <div className="card py-12 text-center text-slate-400"><ClipboardCheck size={36} className="mx-auto mb-2 opacity-30" />Aucune évaluation par formation{segment ? ` pour le pôle ${segment}` : ''}</div>
+      ) : vue !== 'LISTE' && vue !== 'CARTES' && affiches.length === 0 ? (
         <div className="card py-12 text-center text-slate-400"><ClipboardCheck size={36} className="mx-auto mb-2 opacity-30" />Aucune évaluation{segment ? ` pour le pôle ${segment}` : ''}</div>
       ) : vue === 'LISTE' ? (
-        <ListeEvaluations evals={affiches} onOuvrir={(id) => setDetailId(id)} />
+        <ListeEvaluations evals={affichesFormations} onOuvrir={(id) => setDetailId(id)} />
       ) : vue === 'CARTES' ? (
         <>
           {/* Activités EVALUATIONS issues du Planning annuel */}
@@ -480,7 +562,7 @@ export default function Evaluations() {
             );
           })()}
           <div className="grid lg:grid-cols-2 gap-4">
-            {affiches.map(s => (
+            {affichesFormations.map(s => (
               <CarteEvaluation key={s.id} s={s} {...propsCarte}
                 selectable={canDelib && s.etat_eval === 'EVAL_TERMINEES'}
                 selected={selection.includes(s.id)}
@@ -576,7 +658,7 @@ export default function Evaluations() {
         </div>
       )}
 
-      {modal && <ModalEvaluation poles={poles} promotions={promotions} annees={annees} user={user} defaultDate={modalDate} onClose={() => setModal(false)} onCreated={load} onConflit={setConflitInfo} />}
+      {modal && <ModalEvaluation poles={poles} promotions={promotions} annees={annees} user={user} defaultDate={modalDate} onClose={() => setModal(false)} onCreated={load} />}
 
       {/* Marquer terminé : date de fin demandée pour valider l'action */}
       {terminerModal && (

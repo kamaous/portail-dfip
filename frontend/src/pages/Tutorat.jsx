@@ -237,8 +237,10 @@ export const OK_CIBLES = {
 const progression = (t) => Object.entries(OK_CIBLES).filter(([k, v]) => t[k] === v).length;
 const joursRestants = (d) => d ? Math.ceil((new Date(d) - new Date()) / 86400000) : null;
 
-/* Sélecteur Pôle → Formation → Promotion → Niveau → Semestre (référentiel UN-CHK) */
-export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) {
+/* Sélecteur Pôle → Formation → Promotion → Niveau → Semestre (référentiel UN-CHK)
+   hideFormation : masque le sélecteur Formation (utilisé quand la formation se
+   choisit ligne par ligne, pour la création multiple sur plusieurs formations). */
+export function SelecteurCursus({ poles, promotions, form, setForm, lockPole, hideFormation }) {
   const pole = poles.find(p => p.id === parseInt(form.pole_id));
   const cycle = form.niveau ? NIVEAUX[form.niveau]?.cycle : null;
   const formations = (pole?.formations || []).filter(f => !cycle || f.cycle === cycle);
@@ -286,7 +288,7 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
           </div>
         </div>
       )}
-      {form.pole_id && (
+      {!hideFormation && form.pole_id && (
         <div>
           <label className="text-sm font-medium text-slate-700 block mb-1">Formation *</label>
           <select value={form.formation_id} onChange={e => setForm(f => ({ ...f, formation_id: e.target.value }))} required>
@@ -296,6 +298,47 @@ export function SelecteurCursus({ poles, promotions, form, setForm, lockPole }) 
         </div>
       )}
     </>
+  );
+}
+
+/* Ligne d'une fiche de tutorat au sein d'une création multiple : une formation
+   du même pôle + de la même promotion, avec SA PROPRE date (les fiches sont
+   éclatées — une par formation, chacune avec sa date de début et sa durée). */
+function LigneFormationTutorat({ ligne, index, formations, formationsExclues, onChange, onRemove, canRemove, erreur }) {
+  const dispo = formations.filter(f => !formationsExclues.includes(String(f.id)) || String(f.id) === ligne.formation_id);
+  const finCalculee = (() => {
+    const sem = parseInt(ligne.duree_semaines);
+    if (!ligne.date_debut || !sem || sem < 1) return '';
+    const d = new Date(`${ligne.date_debut}T00:00:00`);
+    d.setDate(d.getDate() + sem * 7 - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  })();
+  return (
+    <div className={`border rounded-xl p-3 space-y-2 ${erreur ? 'border-red-300 bg-red-50/50' : 'border-slate-200 bg-slate-50/60'}`}>
+      <div className="flex items-center gap-2">
+        <select value={ligne.formation_id} onChange={e => onChange(index, { formation_id: e.target.value })} required className="flex-1">
+          <option value="">Formation {index + 1}...</option>
+          {dispo.map(f => <option key={f.id} value={f.id}>{f.nom}</option>)}
+        </select>
+        {canRemove && (
+          <button type="button" onClick={() => onRemove(index)} title="Retirer cette formation"
+            className="p-2 text-red-400 hover:bg-red-50 rounded-lg shrink-0"><Trash2 size={15} /></button>
+        )}
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Date de début *</label>
+          <input type="date" value={ligne.date_debut} onChange={e => onChange(index, { date_debut: e.target.value })} required />
+        </div>
+        <div>
+          <label className="text-xs text-slate-500 block mb-0.5">Durée (semaines) *</label>
+          <input type="number" min="1" max="52" step="1" value={ligne.duree_semaines}
+            onChange={e => onChange(index, { duree_semaines: e.target.value })} required />
+        </div>
+      </div>
+      {finCalculee && <p className="text-[11px] text-slate-500">🗓 Fin calculée : <strong>{finCalculee}</strong></p>}
+      {erreur && <p className="text-[11px] text-red-600 font-medium">⚠ {erreur}</p>}
+    </div>
   );
 }
 
@@ -391,9 +434,11 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
   const [form, setForm] = useState({
     annee_id: annees.find(a => a.active)?.id || '',
     pole_id: estRF && user?.pole_id ? String(user.pole_id) : '',   // pôle verrouillé pour un responsable de formation
-    formation_id: '', promotion_id: '', niveau: '', semestre_code: '',
-    date_debut: defaultDebut || '', duree_semaines: '12',   // durée standard : 12 semaines
+    promotion_id: '', niveau: '', semestre_code: '',
   });
+  const ligneVide = () => ({ formation_id: '', date_debut: defaultDebut || '', duree_semaines: '12' });
+  const [lignes, setLignes] = useState([ligneVide()]);
+  const [erreurs, setErreurs] = useState({});
   const [loading, setLoading] = useState(false);
   const [plages, setPlages] = useState(null);
   // Contrainte des plages : option activée/désactivée par le Directeur DES
@@ -401,15 +446,6 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
   useEffect(() => {
     api.get('/parametres/contrainte-plages').then(r => setContrainte(!!r.data.active)).catch(() => {});
   }, []);
-
-  // Date de fin CALCULÉE : début + durée × 7 − 1 jour
-  const finCalculee = (() => {
-    const sem = parseInt(form.duree_semaines);
-    if (!form.date_debut || !sem || sem < 1) return '';
-    const d = new Date(`${form.date_debut}T00:00:00`);
-    d.setDate(d.getDate() + sem * 7 - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  })();
 
   // Plages TUTORAT du Planning annuel pour le pôle choisi (cadrage des dates)
   useEffect(() => {
@@ -421,36 +457,70 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
       }).catch(() => setPlages([]));
   }, [form.pole_id, form.annee_id, poles]);
 
+  // Changement de pôle ou de niveau : les formations disponibles changent, on repart d'une ligne vide
+  useEffect(() => { setLignes([ligneVide()]); setErreurs({}); }, [form.pole_id, form.niveau]);
+
+  const pole = poles.find(p => p.id === parseInt(form.pole_id));
+  const cycle = form.niveau ? NIVEAUX[form.niveau]?.cycle : null;
+  const formationsPole = (pole?.formations || []).filter(f => !cycle || f.cycle === cycle);
+
+  function majLigne(i, patch) { setLignes(ls => ls.map((l, idx) => idx === i ? { ...l, ...patch } : l)); }
+  function ajouterLigne() { setLignes(ls => [...ls, ligneVide()]); }
+  function retirerLigne(i) { setLignes(ls => ls.length > 1 ? ls.filter((_, idx) => idx !== i) : ls); }
+
   async function submit(e) {
     e.preventDefault();
     if (!form.annee_id) return toast.error('Sélectionnez une année');
+    if (!form.pole_id || !form.promotion_id) return toast.error('Sélectionnez un pôle et une promotion');
+    if (!form.niveau) return toast.error('Sélectionnez un niveau');
     if (!form.semestre_code) return toast.error('Sélectionnez un semestre');
-    if (!form.date_debut) return toast.error('La date de début est requise');
-    const sem = parseInt(form.duree_semaines);
-    if (!sem || sem < 1 || sem > 52) return toast.error('Indiquez la durée en semaines (1 à 52)');
+    for (const l of lignes) {
+      if (!l.formation_id) return toast.error('Sélectionnez une formation pour chaque ligne');
+      if (!l.date_debut) return toast.error('La date de début est requise pour chaque formation');
+      const sem = parseInt(l.duree_semaines);
+      if (!sem || sem < 1 || sem > 52) return toast.error('Indiquez une durée valide (1 à 52 semaines) pour chaque formation');
+    }
+    const ids = lignes.map(l => l.formation_id);
+    if (new Set(ids).size !== ids.length) return toast.error('Une même formation ne peut apparaître qu\'une seule fois');
+
     setLoading(true);
-    try {
-      await api.post('/tutorat', { ...form, duree_semaines: sem });
+    const resultats = await Promise.allSettled(lignes.map(l => api.post('/tutorat', {
+      ...form, formation_id: l.formation_id, date_debut: l.date_debut, duree_semaines: parseInt(l.duree_semaines),
+    })));
+    setLoading(false);
+
+    const echecs = lignes
+      .map((l, i) => ({ ligne: l, erreur: resultats[i].status === 'rejected' ? (resultats[i].reason?.response?.data?.error || 'Erreur') : null }))
+      .filter(x => x.erreur);
+    const succes = lignes.length - echecs.length;
+
+    if (succes > 0) {
       toast.success(estRF
-        ? 'Fiche soumise au Chef de division Technopédagogie pour validation'
-        : 'Fiche de suivi créée');
-      onCreated(); onClose();
-    } catch (err) {
-      toast.error(err.response?.data?.error || 'Erreur');
-    } finally { setLoading(false); }
+        ? `${succes} fiche(s) soumise(s) au Chef de division Technopédagogie pour validation`
+        : `${succes} fiche(s) de suivi créée(s)`);
+      onCreated();
+    }
+    if (echecs.length === 0) {
+      onClose();
+    } else {
+      // Ne restent affichées que les formations en échec, pour correction et nouvel essai
+      setLignes(echecs.map(x => x.ligne));
+      setErreurs(Object.fromEntries(echecs.map((x, idx) => [idx, x.erreur])));
+      toast.error(`${echecs.length} formation(s) n'ont pas pu être créées — corrigez et réessayez`, { duration: 6000 });
+    }
   }
 
   return (
     <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b sticky top-0 bg-white">
-          <h2 className="font-semibold text-slate-800">Nouvelle fiche de suivi tutorat</h2>
+          <h2 className="font-semibold text-slate-800">Nouvelle(s) fiche(s) de suivi tutorat</h2>
           <button onClick={onClose} className="text-slate-400 hover:text-slate-600">✕</button>
         </div>
         <form onSubmit={submit} className="p-5 space-y-4">
           {estRF && (
             <div className="bg-blue-50 border border-blue-100 rounded-xl p-3 text-xs text-blue-800">
-              ℹ️ Votre fiche sera <strong>soumise au Chef de division Technopédagogie</strong> pour validation
+              ℹ️ Vos fiches seront <strong>soumises au Chef de division Technopédagogie</strong> pour validation
               avant le démarrage du suivi PLATEFORMES ET TUTORATS.
             </div>
           )}
@@ -461,7 +531,7 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
               {annees.map(a => <option key={a.id} value={a.id}>{a.libelle}{a.active ? ' (active)' : ''}</option>)}
             </select>
           </div>
-          <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} />
+          <SelecteurCursus poles={poles} promotions={promotions} form={form} setForm={setForm} lockPole={estRF} hideFormation />
 
           {/* Plages TUTORAT du planning annuel — bloquantes ou indicatives selon l'option du DES */}
           {form.pole_id && plages !== null && plages.length > 0 && (
@@ -478,26 +548,33 @@ function ModalTutorat({ poles, promotions, annees, user, defaultDebut, onClose, 
             </div>
           )}
 
-          {/* Date de début + durée en semaines → date de fin calculée automatiquement */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Date de début *</label>
-              <input type="date" value={form.date_debut} onChange={e => setForm(f => ({ ...f, date_debut: e.target.value }))} required />
+          {/* Une ou plusieurs formations du même pôle et de la même promotion — chacune avec sa date */}
+          {form.pole_id && (
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-sm font-medium text-slate-700">Formation(s) et date(s) *</label>
+                <span className="text-xs text-slate-400">{lignes.length} formation{lignes.length > 1 ? 's' : ''}</span>
+              </div>
+              {lignes.map((l, i) => (
+                <LigneFormationTutorat key={i} index={i} ligne={l}
+                  formations={formationsPole}
+                  formationsExclues={lignes.filter((_, idx) => idx !== i).map(x => x.formation_id).filter(Boolean)}
+                  onChange={majLigne} onRemove={retirerLigne} canRemove={lignes.length > 1}
+                  erreur={erreurs[i]} />
+              ))}
+              <button type="button" onClick={ajouterLigne} disabled={lignes.length >= formationsPole.length}
+                className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl border-2 border-dashed border-slate-300 text-sm font-medium text-slate-500 hover:border-blue-400 hover:text-blue-600 disabled:opacity-40 disabled:hover:border-slate-300 disabled:hover:text-slate-500">
+                <Plus size={15} /> Ajouter une formation du même pôle et de la même promotion
+              </button>
+              <p className="text-[11px] text-slate-400">Une fiche distincte sera créée pour chaque formation, avec sa propre date de début.</p>
             </div>
-            <div>
-              <label className="text-sm font-medium text-slate-700 block mb-1">Durée (en semaines) *</label>
-              <input type="number" min="1" max="52" step="1" value={form.duree_semaines} placeholder="Ex : 6"
-                onChange={e => setForm(f => ({ ...f, duree_semaines: e.target.value }))} required />
-            </div>
-          </div>
-          {finCalculee && (
-            <p className="text-xs text-slate-600 bg-slate-50 border border-slate-100 rounded-xl px-3 py-2 -mt-1">
-              🗓 Fin calculée : <strong>{finCalculee}</strong> ({form.duree_semaines} semaine{parseInt(form.duree_semaines) > 1 ? 's' : ''} à partir du {form.date_debut}) — la progression sera suivie automatiquement sur cette période.
-            </p>
           )}
+
           <div className="flex gap-2 pt-2">
             <button type="button" onClick={onClose} className="btn-secondary flex-1">Annuler</button>
-            <button type="submit" disabled={loading} className="btn-primary flex-1">{loading ? 'Création...' : 'Créer'}</button>
+            <button type="submit" disabled={loading} className="btn-primary flex-1">
+              {loading ? 'Création...' : lignes.length > 1 ? `Créer ${lignes.length} fiches` : 'Créer'}
+            </button>
           </div>
         </form>
       </div>
@@ -812,6 +889,10 @@ export default function Tutorat() {
     (!fFormation || (t.formation_code || t.formation_nom) === fFormation) &&
     (!fSemestre || t.semestre_code === fSemestre) &&
     (!fPromo || t.promotion_code === fPromo));
+  // En mode Fiches/Liste, seules les fiches RATTACHÉES À UNE FORMATION comptent —
+  // les plages pôle entières issues du Planning annuel (sans formation) restent
+  // visibles uniquement dans le calendrier (bande pointillée de la vue Planning).
+  const tutoratsFormations = tutoratsAffiches.filter(t => t.formation_id);
   const ficheDetail = tutorats.find(t => t.id === detailId);
 
   async function setDemarrageGlobal(date) {
@@ -937,13 +1018,18 @@ export default function Tutorat() {
         <div className="flex items-center justify-center h-32">
           <div className="w-6 h-6 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
-      ) : tutoratsAffiches.length === 0 ? (
+      ) : (vue === 'LISTE' || vue === 'FICHES') && tutoratsFormations.length === 0 ? (
+        <div className="card py-12 text-center text-slate-400">
+          <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
+          Aucune fiche de suivi par formation{segment ? ` pour le pôle ${segment}` : ''}
+        </div>
+      ) : vue !== 'LISTE' && vue !== 'FICHES' && tutoratsAffiches.length === 0 ? (
         <div className="card py-12 text-center text-slate-400">
           <BookOpen size={36} className="mx-auto mb-2 opacity-30" />
           Aucune fiche de suivi{segment ? ` pour le pôle ${segment}` : ''}
         </div>
       ) : vue === 'LISTE' ? (
-        <ListeTutorats tutorats={tutoratsAffiches} onOuvrir={(id) => setDetailId(id)} />
+        <ListeTutorats tutorats={tutoratsFormations} onOuvrir={(id) => setDetailId(id)} />
       ) : vue === 'FICHES' ? (
         <>
           {/* Activités TUTORAT issues du Planning annuel */}
@@ -963,7 +1049,7 @@ export default function Tutorat() {
             );
           })()}
           <div className="grid lg:grid-cols-2 gap-4">
-            {tutoratsAffiches.map(t => (
+            {tutoratsFormations.map(t => (
               <FicheCard key={t.id} t={t} onChange={changeField} onRetard={setRetardModal} onDelete={supprimer} onValider={valider}
                 onSaveEtat={saveEtat} onSaveDates={saveDates} estCreateur={estCreateurFiche(t)}
                 canDelete={canDelete} canWrite={canWrite} canValider={canValider} peutSignaler={peutSignaler} />
