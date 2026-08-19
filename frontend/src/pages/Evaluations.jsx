@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
 import { Plus, ClipboardCheck, Trash2, Calendar, Gavel, LayoutGrid, GanttChartSquare, List, CheckSquare } from 'lucide-react';
@@ -59,6 +59,11 @@ function LigneFormationEvaluation({ ligne, index, formations, formationsExclues,
 
   const [capaciteLive, setCapaciteLive] = useState(null);
   const [groupesRequis, setGroupesRequis] = useState([]);
+  // Auto-scission une seule fois par formation : si l'effectif dépasse la capacité
+  // d'un ENO, on programme automatiquement le GROUPE 1 (l'utilisateur reste libre
+  // de revenir à « Toute la promotion » ou de passer au Groupe 2 ensuite).
+  const autoAppliqueRef = useRef(false);
+  useEffect(() => { autoAppliqueRef.current = false; }, [ligne.formation_id]);
   useEffect(() => {
     setCapaciteLive(null);
     if (!ligne.formation_id || !promotion_id || !niveau) { setGroupesRequis([]); return; }
@@ -66,7 +71,14 @@ function LigneFormationEvaluation({ ligne, index, formations, formationsExclues,
       formation_id: ligne.formation_id, promotion_id, niveau,
       date_demarrage: ligne.date_demarrage, date_fin_prevue: ligne.date_fin_prevue,
       heure_debut, heure_fin, groupe: ligne.groupe || null,
-    }).then(r => { setCapaciteLive(r.data.capacite || null); setGroupesRequis(r.data.groupes_requis || []); }).catch(() => {});
+    }).then(r => {
+      setCapaciteLive(r.data.capacite || null);
+      setGroupesRequis(r.data.groupes_requis || []);
+      if ((r.data.groupes_requis || []).length > 0 && !ligne.groupe && !autoAppliqueRef.current) {
+        autoAppliqueRef.current = true;
+        onChange(index, { groupe: 'G1' });
+      }
+    }).catch(() => {});
   }, [ligne.formation_id, promotion_id, niveau, ligne.date_demarrage, ligne.date_fin_prevue, heure_debut, heure_fin, ligne.groupe]);
 
   const horsPlage = plages?.length > 0 && ligne.date_demarrage && ligne.date_fin_prevue &&
@@ -88,17 +100,18 @@ function LigneFormationEvaluation({ ligne, index, formations, formationsExclues,
       <PlageDates compact debut={ligne.date_demarrage} fin={ligne.date_fin_prevue}
         onChange={({ debut, fin }) => onChange(index, { date_demarrage: debut, date_fin_prevue: fin })} />
 
-      {/* GROUPES : proposés automatiquement quand l'effectif dépasse la capacité d'un ENO */}
+      {/* GROUPES : scission AUTOMATIQUE (Groupe 1 programmé d'office) quand l'effectif dépasse la capacité d'un ENO */}
       {groupesRequis.length > 0 && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 space-y-1.5">
           <p className="text-[11px] text-amber-800">
             👥 <strong>Effectif supérieur à la capacité</strong> dans : {groupesRequis.map(g => `${g.eno} (${g.effectif}/${g.capacite})`).join(' · ')}.
+            {' '}Promotion scindée automatiquement en 2 groupes — <strong>Groupe 1 programmé sur ce créneau</strong> ; créez une seconde évaluation en Groupe 2 pour l'autre moitié.
           </p>
           <div className="flex gap-1.5">
             {[['', 'Toute la promotion'], ['G1', 'Groupe 1'], ['G2', 'Groupe 2']].map(([v, l]) => (
               <button type="button" key={v} onClick={() => onChange(index, { groupe: v })}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold border-2 ${ligne.groupe === v ? 'bg-[#1e3a5f] text-white border-[#1e3a5f]' : 'bg-white text-slate-600 border-slate-200 hover:border-slate-400'}`}>
-                {l}
+                {l}{v === 'G1' && ligne.groupe === 'G1' ? ' ✓ auto' : ''}
               </button>
             ))}
           </div>

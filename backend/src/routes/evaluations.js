@@ -217,10 +217,13 @@ router.post('/', auth, creationAutorisee, (req, res) => {
     });
   }
 
-  // Jamais un jour férié / vacances
+  // Jamais un jour férié — toujours bloquant. Les vacances sont bloquantes par
+  // défaut, mais l'option est désactivable par le Directeur DES (contrainte_vacances).
   const blk = checkDateBloquee(date_demarrage);
   if (blk.ferie) return res.status(409).json({ error: `Date de démarrage = jour férié (${blk.ferie.libelle}).` });
-  if (blk.vacances) return res.status(409).json({ error: `Date de démarrage pendant les vacances (${blk.vacances.libelle}).` });
+  if (blk.vacances && getParam(db, 'contrainte_vacances') !== '0') {
+    return res.status(409).json({ error: `Date de démarrage pendant les vacances (${blk.vacances.libelle}) — option désactivable par le Directeur DES.` });
+  }
 
   const r = db.prepare(`
     INSERT INTO sessions_examen (annee_id, pole_id, promotion_id, formation_id, niveau, semestre_code,
@@ -348,7 +351,9 @@ router.put('/:id', auth, (req, res) => {
   if (date_demarrage && date_demarrage !== prev.date_demarrage) {
     const blk = checkDateBloquee(date_demarrage);
     if (blk.ferie) return res.status(409).json({ error: `Jour férié (${blk.ferie.libelle}).` });
-    if (blk.vacances) return res.status(409).json({ error: `Vacances (${blk.vacances.libelle}).` });
+    if (blk.vacances && getParam(db, 'contrainte_vacances') !== '0') {
+      return res.status(409).json({ error: `Vacances (${blk.vacances.libelle}) — option désactivable par le Directeur DES.` });
+    }
   }
 
   db.prepare(`

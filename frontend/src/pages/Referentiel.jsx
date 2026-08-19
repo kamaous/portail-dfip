@@ -26,6 +26,7 @@ export default function Referentiel() {
   const [promotions, setPromotions] = useState([]);
   const [demandes, setDemandes] = useState([]);
   const [contrainte, setContrainte] = useState(null); // option « contrainte des plages » (Directeur DES)
+  const [contrainteVacances, setContrainteVacances] = useState(null); // option « vacances bloquantes pour les évaluations » (Directeur DES)
   const [loading, setLoading] = useState(true);
   const [modalFormation, setModalFormation] = useState(null); // { pole, formation? }
   const [modalPole, setModalPole] = useState(null);           // { pole? } — création/édition
@@ -37,7 +38,8 @@ export default function Referentiel() {
       api.get('/poles/promotions').catch(() => ({ data: [] })),
       api.get('/referentiel/suppressions').catch(() => ({ data: [] })),
       api.get('/parametres/contrainte-plages').catch(() => ({ data: { active: null } })),
-    ]).then(([p, pr, d, c]) => { setPoles(p.data); setPromotions(pr.data); setDemandes(d.data); setContrainte(c.data.active); })
+      api.get('/parametres/contrainte-vacances').catch(() => ({ data: { active: null } })),
+    ]).then(([p, pr, d, c, cv]) => { setPoles(p.data); setPromotions(pr.data); setDemandes(d.data); setContrainte(c.data.active); setContrainteVacances(cv.data.active); })
       .finally(() => setLoading(false));
   }
   useEffect(load, []);
@@ -49,6 +51,16 @@ export default function Referentiel() {
       toast.success(r.data.active
         ? 'Contrainte des plages ACTIVÉE : les fiches et évaluations devront s\'inscrire dans les plages du Planning annuel'
         : 'Contrainte des plages désactivée : les plages redeviennent indicatives');
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+
+  async function basculerContrainteVacances() {
+    try {
+      const r = await api.put('/parametres/contrainte-vacances', { active: !contrainteVacances });
+      setContrainteVacances(r.data.active);
+      toast.success(r.data.active
+        ? 'Vacances BLOQUANTES : la création d\'évaluations pendant les vacances est de nouveau interdite'
+        : 'Vacances autorisées : les évaluations peuvent désormais être programmées pendant les vacances');
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
 
@@ -111,6 +123,35 @@ export default function Referentiel() {
             ) : (
               <span className={`badge shrink-0 ${contrainte ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
                 {contrainte ? 'Active' : 'Inactive'} · gérée par le Directeur DES
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Option du Directeur DES : évaluations pendant les vacances */}
+      {contrainteVacances !== null && (
+        <div className={`card border-2 ${contrainteVacances ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-2xl">{contrainteVacances ? '🔒' : '🔓'}</span>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold text-slate-800">Évaluations pendant les vacances</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {contrainteVacances
+                  ? 'BLOQUÉES — aucune évaluation ne peut être programmée ou reportée pendant les vacances scolaires. Les jours fériés restent, eux, toujours bloquants.'
+                  : 'Autorisées — les évaluations peuvent être programmées pendant les vacances scolaires. Les jours fériés restent, eux, toujours bloquants.'}
+              </p>
+            </div>
+            {estDES ? (
+              <button onClick={basculerContrainteVacances}
+                className={`shrink-0 px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all ${contrainteVacances
+                  ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+                  : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'}`}>
+                {contrainteVacances ? 'Autoriser les vacances' : 'Bloquer les vacances'}
+              </button>
+            ) : (
+              <span className={`badge shrink-0 ${contrainteVacances ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                {contrainteVacances ? 'Bloquées' : 'Autorisées'} · gérée par le Directeur DES
               </span>
             )}
           </div>
