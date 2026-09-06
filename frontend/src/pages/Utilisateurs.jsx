@@ -356,7 +356,7 @@ export default function Utilisateurs() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-2xl font-bold text-slate-800">Utilisateurs</h1>
           <p className="text-slate-500 text-sm">{users.length} compte(s)</p>
@@ -401,8 +401,8 @@ export default function Utilisateurs() {
         </div>
       )}
 
-      <div className="card overflow-hidden p-0">
-        <table className="w-full text-sm">
+      <div className="card !p-0 overflow-x-auto nav-scroll">
+        <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>
               <th className="text-left px-4 py-3 table-header">Nom</th>

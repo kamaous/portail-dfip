@@ -73,12 +73,6 @@ export default function Resume() {
   const [poles, setPoles] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [onglet, setOnglet] = useState('SEJA');
-  const [volet, setVolet] = useState('TUTORAT'); // TUTORAT | EVALUATIONS (onglets pôles)
-  const [fPromo, setFPromo] = useState('');
-  const [fSem, setFSem] = useState('');
-  const [fProg, setFProg] = useState('');      // DFIP : programme
-  const [fStatut, setFStatut] = useState('');  // DFIP : statut du suivi
 
   function load() {
     setLoading(true);
@@ -95,6 +89,21 @@ export default function Resume() {
     }).finally(() => setLoading(false));
   }
   useEffect(load, []);
+
+  return <ResumeCorps tutorats={tutorats} evals={evals} poles={poles} incidents={incidents} loading={loading} onRefresh={load} />;
+}
+
+/* Corps du module — partagé entre la vue connectée (Resume, ci-dessus) et la vue
+   PUBLIQUE sans compte (ResumePublic.jsx, données servies par /api/public/resume,
+   sans aucune donnée nominative). `publicMode` masque l'export PDF (route
+   authentifiée) et adapte le libellé du bouton d'actualisation. */
+export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefresh, publicMode }) {
+  const [onglet, setOnglet] = useState('SEJA');
+  const [volet, setVolet] = useState('TUTORAT'); // TUTORAT | EVALUATIONS (onglets pôles)
+  const [fPromo, setFPromo] = useState('');
+  const [fSem, setFSem] = useState('');
+  const [fProg, setFProg] = useState('');      // DFIP : programme
+  const [fStatut, setFStatut] = useState('');  // DFIP : statut du suivi
 
   const promotions = useMemo(() =>
     [...new Set([...tutorats, ...evals].map(x => x.promotion_code).filter(Boolean))].sort(), [tutorats, evals]);
@@ -213,8 +222,8 @@ export default function Resume() {
           <p className="text-slate-500 text-sm">Remontée des activités par pôle et suivi de la programmation des évaluations (DFIP)</p>
         </div>
         <div className="flex items-center gap-2">
-          <BoutonExportPdf />
-          <button onClick={load} className="btn-secondary flex items-center gap-2"><RefreshCw size={15} /> Actualiser</button>
+          {!publicMode && <BoutonExportPdf />}
+          <button onClick={onRefresh} className="btn-secondary flex items-center gap-2"><RefreshCw size={15} /> Actualiser</button>
         </div>
       </div>
 

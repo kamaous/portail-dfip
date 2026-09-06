@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import axios from 'axios';
 import { Link } from 'react-router-dom';
-import { LayoutGrid, LogIn } from 'lucide-react';
+import { LayoutGrid, LogIn, Gauge } from 'lucide-react';
 import { useTimelineFenetre, BarreZoom, BarreZoomV, OverlaysDevant, BandeauVacances, EnTeteUnites, FondGrille } from './PlanningAnnuel';
 
 /* Version PUBLIQUE (lecture seule, sans compte) du planning annuel —
@@ -106,6 +106,7 @@ export default function PlanningPublic() {
           <select value={anneeId || ''} onChange={e => setAnneeId(parseInt(e.target.value))} className="!w-auto">
             {(data?.annees || []).map(a => <option key={a.id} value={a.id}>{a.libelle}{a.active ? ' (active)' : ''}</option>)}
           </select>
+          <Link to="/resume-public" className="btn-secondary flex items-center gap-2 !py-2"><Gauge size={15} /> Résumé</Link>
           <Link to="/login" className="btn-primary flex items-center gap-2 !py-2"><LogIn size={15} /> Connexion</Link>
         </div>
       </header>

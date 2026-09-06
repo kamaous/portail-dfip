@@ -12,6 +12,7 @@ import Evaluations from './pages/Evaluations';
 import Reunions from './pages/Reunions';
 import Resume from './pages/Resume';
 import PlanningPublic from './pages/PlanningPublic';
+import ResumePublic from './pages/ResumePublic';
 import Rapport from './pages/Rapport';
 import Statistiques from './pages/Statistiques';
 import CalendrierExamens from './pages/CalendrierExamens';
@@ -55,8 +56,9 @@ function AppRoutes() {
         <ProtectedRoute><ChangePassword /></ProtectedRoute>
       } />
 
-      {/* Accès PUBLIC (sans compte) : planning annuel en lecture seule */}
+      {/* Accès PUBLIC (sans compte) : planning annuel et résumé en lecture seule */}
       <Route path="/public" element={<PlanningPublic />} />
+      <Route path="/resume-public" element={<ResumePublic />} />
 
       <Route path="/" element={
         <ProtectedRoute>

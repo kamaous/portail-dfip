@@ -115,6 +115,9 @@ export default function Login() {
             <a href="/public" className="block text-center mt-4 text-sm font-medium text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-xl py-2.5 transition-colors">
               📅 Consulter le planning annuel (visiteur, sans compte)
             </a>
+            <a href="/resume-public" className="block text-center mt-2 text-sm font-medium text-blue-700 hover:text-blue-900 bg-blue-50 hover:bg-blue-100 border border-blue-100 rounded-xl py-2.5 transition-colors">
+              📊 Consulter le résumé (visiteur, sans compte)
+            </a>
           </div>
 
           <p className="text-center text-slate-400 text-xs mt-6">
