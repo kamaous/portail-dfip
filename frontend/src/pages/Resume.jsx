@@ -7,16 +7,22 @@ import BoutonExportPdf from '../components/ExportPdf';
 
 /* Module RÉSUMÉ — inspiré du classeur « Calendrier académique UN-CHK » :
    - Volets Tutorat / Évaluations (filtre principal)
-   - Onglets SEJA / STN / LSHE : « SUIVI DE L'EXÉCUTION » du pôle, par niveau
-     (filtres Promotion + Semestre)
-   - Onglet DFIP : « Suivi de la programmation des évaluations »
-     (filtres Promotion + Semestre + Programme + Statut du suivi)              */
+   - Onglet DFIP (affiché par défaut) : « Suivi de la programmation des évaluations »
+     (filtres Promotion + Semestre + Programme + Statut du suivi)
+   - Onglets STN / SEJA / LSHE : « SUIVI DE L'EXÉCUTION » du pôle, par niveau
+     (filtres Promotion + Semestre)                                            */
 
 const POLES_SEG = {
   SEJA: { color: '#ea580c', light: '#fdeee3' },
   STN: { color: '#16a34a', light: '#e8f6ec' },
   LSHE: { color: '#6d28d9', light: '#f0e9fb' },
   DFIP: { color: '#1e3a5f', light: '#e8eef5' },
+};
+// Ordre d'affichage des rubriques : DFIP d'abord (vue par défaut), puis STN, SEJA, LSHE
+const ONGLETS_ORDRE = ['DFIP', 'STN', 'SEJA', 'LSHE'];
+const ordrePole = (a, b) => {
+  const ia = ONGLETS_ORDRE.indexOf(a), ib = ONGLETS_ORDRE.indexOf(b);
+  return (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || String(a).localeCompare(String(b));
 };
 const NIVEAUX_ORDRE = ['L1', 'L2', 'L3', 'M1', 'M2'];
 const NIVEAU_LABEL = { L1: 'LICENCE 1', L2: 'LICENCE 2', L3: 'LICENCE 3', M1: 'MASTER 1', M2: 'MASTER 2' };
@@ -98,7 +104,7 @@ export default function Resume() {
    sans aucune donnée nominative). `publicMode` masque l'export PDF (route
    authentifiée) et adapte le libellé du bouton d'actualisation. */
 export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefresh, publicMode }) {
-  const [onglet, setOnglet] = useState('SEJA');
+  const [onglet, setOnglet] = useState('DFIP');
   const [volet, setVolet] = useState('TUTORAT'); // TUTORAT | EVALUATIONS (onglets pôles)
   const [fPromo, setFPromo] = useState('');
   const [fSem, setFSem] = useState('');
@@ -147,7 +153,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
       .sort((a, b) => b.localeCompare(a, 'fr', { numeric: true })); // P13 avant P12…
     return promos.map(promo => {
       const dePromo = evalsProg.filter(e => (e.promotion_code || '—') === promo);
-      const poles_ = [...new Set(dePromo.map(e => e.pole_code || '—'))].sort();
+      const poles_ = [...new Set(dePromo.map(e => e.pole_code || '—'))].sort(ordrePole);
       return {
         promo, total: dePromo.length,
         terminees: dePromo.filter(e => e.etat_eval === 'EVAL_TERMINEES' || e.delib_etat === 'TERMINEE').length,
@@ -180,7 +186,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
       .sort((a, b) => b.localeCompare(a, 'fr', { numeric: true }));
     return promos.map(promo => {
       const dePromo = tutosDfip.filter(t => (t.promotion_code || '—') === promo);
-      const poles_ = [...new Set(dePromo.map(t => t.pole_code || '—'))].sort();
+      const poles_ = [...new Set(dePromo.map(t => t.pole_code || '—'))].sort(ordrePole);
       return {
         promo, total: dePromo.length,
         enCours: dePromo.filter(t => etatTutoratAuto(t) === 'EN_COURS').length,
@@ -230,7 +236,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
       {/* Onglets façon classeur + volets + filtres */}
       <div className="card !p-3 space-y-2.5">
         <div className="flex flex-wrap items-center gap-2">
-          {['SEJA', 'STN', 'LSHE', 'DFIP'].map(k => {
+          {ONGLETS_ORDRE.map(k => {
             const s = POLES_SEG[k];
             const actif = onglet === k;
             return (
@@ -242,8 +248,8 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
             );
           })}
 
-          {/* Volets Tutorat / Évaluations — pour les pôles ET pour l'onglet DFIP */}
-          <div className="flex rounded-xl border border-slate-200 overflow-hidden ml-1">
+          {/* Volets Tutorat / Évaluations — pour les pôles ET pour l'onglet DFIP, placés à l'écart des rubriques */}
+          <div className="flex rounded-xl border border-slate-200 overflow-hidden ml-auto">
             {[['TUTORAT', BookOpen, 'Tutorat'], ['EVALUATIONS', FlaskConical, 'Évaluations']].map(([v, Icon, label]) => (
               <button key={v} onClick={() => setVolet(v)}
                 className={`flex items-center gap-1.5 px-3.5 py-2 text-sm font-medium transition-colors ${volet === v ? 'bg-[#1e3a5f] text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}>

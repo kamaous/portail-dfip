@@ -81,7 +81,12 @@ router.post('/login', (req, res) => {
         return res.status(423).json({ error: 'Compte bloqué après 3 tentatives de connexion échouées. Contactez l\'administrateur pour le débloquer.' });
       }
       db.prepare('UPDATE users SET tentatives_echouees = ? WHERE id = ?').run(essais, user.id);
-      return res.status(401).json({ error: `Email ou mot de passe incorrect (tentative ${essais}/3 — le compte sera bloqué au 3e échec)` });
+      // Le compte existe : on invite à RÉCUPÉRER le mot de passe avant le blocage
+      return res.status(401).json({
+        error: `Email ou mot de passe incorrect (tentative ${essais}/3). Mot de passe oublié ? Faites une récupération avant que votre compte ne soit bloqué au 3e échec.`,
+        recuperation: true,
+        tentatives_restantes: 3 - essais,
+      });
     }
     return res.status(401).json({ error: 'Email ou mot de passe incorrect' });
   }
@@ -117,6 +122,121 @@ router.post('/login', (req, res) => {
     user: userPourFront(user, db),
     must_change_password: !!user.must_change_password
   });
+});
+
+/* ===== RÉCUPÉRATION DU MOT DE PASSE =====
+   L'adresse doit correspondre à un compte actif du portail (sinon : s'adresser à
+   l'administrateur). Un lien à usage unique, valable RESET_MINUTES, est envoyé par
+   email ; seule l'empreinte SHA-256 du jeton est conservée en base.
+   Un compte BLOQUÉ reste déblocable uniquement par un administrateur. */
+const crypto = require('crypto');
+const { sendEmail, templates } = require('../services/email');
+const { APP_URL } = require('../config');
+const RESET_MINUTES = 60;
+const empreinte = (t) => crypto.createHash('sha256').update(String(t)).digest('hex');
+const MSG_COMPTE_BLOQUE = 'Ce compte est bloqué après 3 tentatives de connexion échouées. Contactez l\'administrateur pour le débloquer.';
+
+// Anti-abus : 5 demandes par IP en 15 min
+const demandesReset = new Map(); // ip → { count, until }
+setInterval(() => {
+  const now = Date.now();
+  for (const [k, v] of demandesReset) if (now > v.until) demandesReset.delete(k);
+}, 10 * 60 * 1000).unref();
+
+function jetonValide(db, token) {
+  if (!token) return null;
+  return db.prepare(`
+    SELECT pr.id as reset_id, u.*
+    FROM password_resets pr JOIN users u ON u.id = pr.user_id
+    WHERE pr.token_hash = ? AND pr.used_at IS NULL
+      AND datetime(pr.expires_at) > datetime('now') AND u.actif = 1
+  `).get(empreinte(token));
+}
+
+// POST /api/auth/forgot-password
+router.post('/forgot-password', async (req, res) => {
+  const email = String(req.body?.email || '').toLowerCase().trim();
+  if (!email) return res.status(400).json({ error: 'Adresse email requise' });
+
+  const ipClient = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  let d = demandesReset.get(ipClient);
+  if (!d || Date.now() > d.until) d = { count: 0, until: Date.now() + FENETRE_MS };
+  if (d.count >= 5) return res.status(429).json({ error: 'Trop de demandes. Réessayez dans quelques minutes.' });
+  demandesReset.set(ipClient, { count: d.count + 1, until: d.until });
+
+  const db = getDb();
+  const user = db.prepare('SELECT * FROM users WHERE email = ? AND actif = 1').get(email);
+  if (!user) {
+    return res.status(404).json({
+      error: 'Aucun compte n\'est associé à cette adresse email. Rapprochez-vous de l\'administrateur du portail pour obtenir un compte.',
+    });
+  }
+  if (user.bloque) return res.status(423).json({ error: MSG_COMPTE_BLOQUE });
+
+  // Un seul envoi toutes les 2 minutes pour un même compte
+  const recent = db.prepare(`
+    SELECT id FROM password_resets WHERE user_id = ? AND datetime(created_at) > datetime('now', '-2 minutes')
+  `).get(user.id);
+  if (recent) {
+    return res.status(429).json({ error: 'Un email de récupération vient d\'être envoyé à cette adresse. Vérifiez votre boîte de réception (et les spams) avant de refaire une demande.' });
+  }
+
+  const token = crypto.randomBytes(32).toString('hex');
+  db.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(user.id);
+  db.prepare(`
+    INSERT INTO password_resets (user_id, token_hash, expires_at, ip_address)
+    VALUES (?, ?, datetime('now', ?), ?)
+  `).run(user.id, empreinte(token), `+${RESET_MINUTES} minutes`, ipClient);
+
+  const lien = `${APP_URL.replace(/\/$/, '')}/reinitialiser-mot-de-passe?token=${token}`;
+  const envoye = await sendEmail({ to: user.email, ...templates.recuperationMotDePasse(user, lien, RESET_MINUTES) });
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail, ip_address) VALUES (?, ?, ?, ?, ?)')
+    .run(user.id, 'PASSWORD_RESET_REQUEST', 'AUTH', envoye ? 'email envoyé' : 'échec envoi email', ipClient);
+  if (!envoye) {
+    return res.status(502).json({ error: 'L\'email de récupération n\'a pas pu être envoyé. Réessayez plus tard ou contactez l\'administrateur.' });
+  }
+
+  res.json({ message: `Un email de récupération a été envoyé à ${user.email}. Le lien est valable ${RESET_MINUTES} minutes.` });
+});
+
+// GET /api/auth/reset-password/:token — le lien est-il encore valable ?
+router.get('/reset-password/:token', (req, res) => {
+  const user = jetonValide(getDb(), req.params.token);
+  if (!user) return res.status(400).json({ error: 'Ce lien de récupération est invalide, expiré ou déjà utilisé. Faites une nouvelle demande.' });
+  if (user.bloque) return res.status(423).json({ error: MSG_COMPTE_BLOQUE });
+  res.json({ email: user.email });
+});
+
+// POST /api/auth/reset-password
+router.post('/reset-password', (req, res) => {
+  const { token, nouveau_password } = req.body || {};
+  if (!token || !nouveau_password) return res.status(400).json({ error: 'Champs requis manquants' });
+  if (nouveau_password.length < 6) {
+    return res.status(400).json({ error: 'Le mot de passe doit contenir au moins 6 caractères' });
+  }
+  if (nouveau_password === 'Test@2026') {
+    return res.status(400).json({ error: 'Ce mot de passe n\'est pas autorisé — choisissez un mot de passe personnel' });
+  }
+
+  const db = getDb();
+  const user = jetonValide(db, token);
+  if (!user) return res.status(400).json({ error: 'Ce lien de récupération est invalide, expiré ou déjà utilisé. Faites une nouvelle demande.' });
+  if (user.bloque) return res.status(423).json({ error: MSG_COMPTE_BLOQUE });
+
+  const ipClient = (req.headers['x-forwarded-for'] || req.socket.remoteAddress || '').split(',')[0].trim();
+  db.transaction(() => {
+    db.prepare(`
+      UPDATE users SET password_hash = ?, must_change_password = 0, tentatives_echouees = 0, updated_at = datetime('now')
+      WHERE id = ?
+    `).run(bcrypt.hashSync(nouveau_password, 10), user.id);
+    db.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(user.id);
+    // Les sessions ouvertes avec l'ancien mot de passe sont fermées
+    db.prepare("UPDATE user_sessions SET actif = 0, disconnected_at = datetime('now') WHERE user_id = ? AND actif = 1").run(user.id);
+    db.prepare('INSERT INTO audit_logs (user_id, action, module, ip_address) VALUES (?, ?, ?, ?)')
+      .run(user.id, 'PASSWORD_RESET', 'AUTH', ipClient);
+  })();
+
+  res.json({ message: 'Mot de passe réinitialisé. Vous pouvez maintenant vous connecter.' });
 });
 
 // POST /api/auth/logout

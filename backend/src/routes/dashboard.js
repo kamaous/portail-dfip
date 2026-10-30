@@ -69,13 +69,13 @@ router.get('/stats', auth, (req, res) => {
     poles: db.prepare('SELECT COUNT(*) as cnt FROM poles').get().cnt,
   };
 
-  // Activité récente (audit)
-  stats.activite_recente = db.prepare(`
+  // Activité récente (audit) : réservée aux ADMINISTRATEURS du portail
+  stats.activite_recente = req.user.role === 'ADMIN_PORTAIL' ? db.prepare(`
     SELECT al.*, u.nom, u.prenom, u.role
     FROM audit_logs al
     LEFT JOIN users u ON u.id = al.user_id
     ORDER BY al.created_at DESC LIMIT 10
-  `).all();
+  `).all() : [];
 
   // Notifications non lues
   stats.notifications_non_lues = db.prepare(

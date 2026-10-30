@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import toast from 'react-hot-toast';
-import { Eye, EyeOff, Lock, Mail, LogIn } from 'lucide-react';
+import { Eye, EyeOff, Lock, Mail, LogIn, KeyRound, AlertTriangle } from 'lucide-react';
 
 export default function Login() {
   const { login } = useAuth();
@@ -10,10 +10,15 @@ export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
   const [showPwd, setShowPwd] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [alerte, setAlerte] = useState(null); // { message, recuperation }
+
+  // L'email saisi est transmis à la page de récupération (état de navigation, pas dans l'URL)
+  const etatRecuperation = { email: form.email.trim() };
 
   async function handleSubmit(e) {
     e.preventDefault();
     setLoading(true);
+    setAlerte(null);
     try {
       const data = await login(form.email, form.password);
       if (data.must_change_password) {
@@ -23,7 +28,13 @@ export default function Login() {
         navigate('/');
       }
     } catch (err) {
-      toast.error(err.response?.data?.error || 'Connexion impossible');
+      const data = err.response?.data || {};
+      // Compte existant mais mot de passe erroné, ou compte bloqué : message persistant
+      if (data.recuperation || err.response?.status === 423) {
+        setAlerte({ message: data.error, recuperation: !!data.recuperation });
+      } else {
+        toast.error(data.error || 'Connexion impossible');
+      }
     } finally {
       setLoading(false);
     }
@@ -68,7 +79,12 @@ export default function Login() {
                 </div>
               </div>
               <div>
-                <label className="text-sm font-semibold text-slate-700 block mb-1.5">Mot de passe</label>
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="text-sm font-semibold text-slate-700">Mot de passe</label>
+                  <Link to="/mot-de-passe-oublie" state={etatRecuperation} className="text-xs font-medium text-blue-700 hover:text-blue-900 hover:underline">
+                    Mot de passe oublié ?
+                  </Link>
+                </div>
                 <div className="relative">
                   <Lock size={17} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
@@ -90,6 +106,20 @@ export default function Login() {
                   </button>
                 </div>
               </div>
+              {alerte && (
+                <div className={`rounded-xl border px-4 py-3 text-sm ${alerte.recuperation ? 'bg-amber-50 border-amber-300 text-amber-900' : 'bg-red-50 border-red-300 text-red-800'}`}>
+                  <p className="flex gap-2">
+                    <AlertTriangle size={17} className="shrink-0 mt-0.5" />
+                    <span>{alerte.message}</span>
+                  </p>
+                  {alerte.recuperation && (
+                    <Link to="/mot-de-passe-oublie" state={etatRecuperation}
+                      className="mt-2.5 flex items-center justify-center gap-2 w-full bg-amber-600 hover:bg-amber-700 text-white font-semibold py-2 rounded-lg transition-colors">
+                      <KeyRound size={15} /> Récupérer mon mot de passe
+                    </Link>
+                  )}
+                </div>
+              )}
               <button
                 type="submit"
                 disabled={loading}

@@ -8,11 +8,20 @@ const transporter = nodemailer.createTransport({
   auth: { user: SMTP.user, pass: SMTP.pass }
 });
 
+/* EMAIL_MODE=console : aucun email n'est envoyé, il est affiché dans la console
+   (travail en local sur une copie des données réelles sans écrire aux utilisateurs). */
 async function sendEmail({ to, subject, html }) {
+  if (process.env.EMAIL_MODE === 'console') {
+    const texte = html.replace(/<a [^>]*href="([^"]+)"[^>]*>/g, ' [$1] ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+    console.log(`[EMAIL NON ENVOYÉ] à ${to} — ${subject}\n  ${texte}`);
+    return true;
+  }
   try {
     await transporter.sendMail({ from: SMTP.from, to, subject, html });
+    return true;
   } catch (err) {
     console.error('[EMAIL ERROR]', err.message);
+    return false;
   }
 }
 
@@ -60,6 +69,29 @@ const templates = {
             ${tache.date_echeance ? `<p style="margin:8px 0 0;font-size:14px;color:#dc2626">📅 Échéance : ${tache.date_echeance}</p>` : ''}
           </div>
           <p>Connectez-vous au portail pour consulter et gérer cette tâche.</p>
+        </div>
+        <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
+          Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE
+        </div>
+      </div>
+    `
+  }),
+
+  recuperationMotDePasse: (user, lien, minutes) => ({
+    subject: '[SUIVI PÉDAGOGIQUE] Réinitialisation de votre mot de passe',
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;border:1px solid #e5e7eb;border-radius:8px;overflow:hidden">
+        <div style="background:#1e3a5f;padding:20px;text-align:center">
+          <h1 style="color:#fff;margin:0;font-size:18px">🔑 Récupération du mot de passe</h1>
+        </div>
+        <div style="padding:28px">
+          <p>Bonjour <strong>${user.prenom || ''} ${user.nom}</strong>,</p>
+          <p>Une demande de réinitialisation du mot de passe a été faite pour votre compte <strong>${user.email}</strong>.</p>
+          <p style="text-align:center;margin:28px 0">
+            <a href="${lien}" style="background:#1e3a5f;color:#fff;padding:12px 26px;border-radius:8px;text-decoration:none;font-weight:bold">Choisir un nouveau mot de passe</a>
+          </p>
+          <p style="font-size:13px;color:#475569">Ce lien est valable <strong>${minutes} minutes</strong> et ne peut servir qu'une seule fois.</p>
+          <p style="font-size:13px;color:#dc2626">Si vous n'êtes pas à l'origine de cette demande, ignorez cet email : votre mot de passe actuel reste valable.</p>
         </div>
         <div style="background:#f9fafb;padding:16px;text-align:center;font-size:12px;color:#6b7280">
           Université numérique Cheikh Hamidou KANE - UnCHK — SUIVI PÉDAGOGIQUE

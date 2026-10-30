@@ -42,6 +42,7 @@ const ACTION_LABELS = {
   CREATE_INCIDENT: 'Incident signalé', CREATE_EXAMEN: 'Examen créé',
   UPLOAD_CALENDRIER: 'Calendrier uploadé', CREATE_USER: 'Utilisateur créé',
   CREATE_TUTORAT: 'Tutorat créé', CHANGE_PASSWORD: 'Mot de passe changé',
+  PASSWORD_RESET_REQUEST: 'Récupération du mot de passe demandée', PASSWORD_RESET: 'Mot de passe réinitialisé',
 };
 
 const ROLE_LABELS = {
@@ -226,8 +227,8 @@ export default function Dashboard() {
         />
       </div>
 
-      {/* Activité récente */}
-      {stats?.activite_recente?.length > 0 && (
+      {/* Activité récente : administrateurs uniquement (le serveur ne l'envoie qu'à eux) */}
+      {user?.role === 'ADMIN_PORTAIL' && stats?.activite_recente?.length > 0 && (
         <div className="card">
           <h3 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
             <Clock size={16} /> Activité récente

@@ -7,6 +7,8 @@ module.exports = {
   JWT_SECRET: process.env.JWT_SECRET || secrets.JWT_SECRET || 'dev-secret-local-uniquement',
   JWT_EXPIRES_IN: '8h',
   SESSION_TIMEOUT_MINUTES: 60,
+  // Adresse publique du portail (liens envoyés par email, ex. récupération du mot de passe)
+  APP_URL: process.env.APP_URL || 'https://suivipedagogique.unchk.sn',
 
   SMTP: {
     host: 'smtp.gmail.com',

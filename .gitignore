@@ -23,3 +23,6 @@ Thumbs.db
 
 # Secrets applicatifs (jamais dans git)
 backend/src/config.secrets.js
+
+# Paquets de déploiement générés (deploy/unchk/construire-paquet.sh)
+deploy/unchk/paquets/

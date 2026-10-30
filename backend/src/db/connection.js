@@ -1,7 +1,8 @@
 const Database = require('better-sqlite3');
 const path = require('path');
 
-const DB_PATH = path.join(__dirname, '../../database.sqlite');
+// DB_PATH (optionnel) : travailler en local sur une COPIE de la base de production
+const DB_PATH = process.env.DB_PATH || path.join(__dirname, '../../database.sqlite');
 let db;
 
 function getDb() {
@@ -690,6 +691,20 @@ function runMigrations() {
     db.prepare(`SELECT DISTINCT segment, ligne FROM planning_activites`).all()
       .forEach(a => ins.run(a.segment, a.ligne, 99));
   }
+
+  // Récupération de mot de passe : jetons à usage unique (seule l'empreinte SHA-256 est stockée)
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS password_resets (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      user_id INTEGER NOT NULL,
+      token_hash TEXT UNIQUE NOT NULL,
+      expires_at TEXT NOT NULL,
+      used_at TEXT,
+      ip_address TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      FOREIGN KEY (user_id) REFERENCES users(id)
+    );
+  `);
 }
 
 module.exports = { getDb };

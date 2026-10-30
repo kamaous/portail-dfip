@@ -4,6 +4,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import ChangePassword from './pages/ChangePassword';
+import { MotDePasseOublie, ReinitialiserMotDePasse } from './pages/MotDePasseOublie';
 import Dashboard from './pages/Dashboard';
 import Taches from './pages/Taches';
 import Incidents from './pages/Incidents';
@@ -52,6 +53,8 @@ function AppRoutes() {
   return (
     <Routes>
       <Route path="/login" element={user ? <Navigate to="/" replace /> : <Login />} />
+      <Route path="/mot-de-passe-oublie" element={user ? <Navigate to="/" replace /> : <MotDePasseOublie />} />
+      <Route path="/reinitialiser-mot-de-passe" element={<ReinitialiserMotDePasse />} />
       <Route path="/changer-mot-de-passe" element={
         <ProtectedRoute><ChangePassword /></ProtectedRoute>
       } />

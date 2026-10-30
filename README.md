@@ -3,7 +3,8 @@
 Portail de la **Direction de la Formation et de l'Ingénierie Pédagogique** de
 l'**Université numérique Cheikh Hamidou KANE - UnCHK**.
 
-Production : https://pedagogie.tekkina.sn
+Production : https://suivipedagogique.unchk.sn (serveur UNCHK, depuis le 29/07/2026 ;
+l'ancienne adresse pedagogie.tekkina.sn n'affiche plus qu'une page de redirection)
 
 ## Modules
 - **Planning annuel** (Gantt) : 5 segments (Rectorat, DFIP & DES, PSEJA, PSTN, PLSHE),
@@ -37,13 +38,20 @@ Admin par défaut : voir la mémoire projet (les comptes de test utilisent Test@
 - `fix-encoding.js` — répare d'éventuelles chaînes mal encodées
 
 ## Déploiement
-**Règle : sauvegarde obligatoire avant toute mise à jour** (locale + serveur, le script la fait).
+**Règle : sauvegarde vérifiée et copiée hors serveur avant toute mise à jour.**
+Serveur UNCHK : voir **[deploy/unchk/PROCEDURE.md](deploy/unchk/PROCEDURE.md)**
+(`construire-paquet.sh` sur le PC, puis `deploy-unchk.sh` sur le serveur :
+verifier → sauvegarder → deployer → controler, retour arrière possible).
+
+`deploy/deploy.js` ne concerne que l'ancien serveur (pedagogie.tekkina.sn).
+
+### Travailler en local sur une copie des données réelles
 ```bash
-cd frontend && npm run build
-# bundle sans database.sqlite pour préserver la base de production
-SSHPW=... JWTS=... node deploy/deploy.js
+# backend : base copiée, emails affichés dans la console (jamais envoyés)
+DB_PATH=/chemin/copie/database.sqlite EMAIL_MODE=console APP_URL=http://localhost:5176 PORT=5101 node src/index.js
+# frontend
+API_PROXY=http://localhost:5101 npx vite --port 5176
 ```
-nginx sert `frontend/dist` et proxy `/api` → 127.0.0.1:5100 (PM2 `pedagogie-api`).
 
 ⚠️ `backend/src/config.js` contient des identifiants SMTP — repo à garder **privé**
 (à terme : les déplacer dans des variables d'environnement).
