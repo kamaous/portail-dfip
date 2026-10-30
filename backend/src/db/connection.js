@@ -617,6 +617,15 @@ function runMigrations() {
     tentatives_echouees: 'INTEGER NOT NULL DEFAULT 0',
   });
 
+  // Suppression d'un compte par l'administrateur : un compte ayant un historique est
+  // retiré (invisible, sans connexion possible, email libéré) mais sa ligne reste
+  // pour que les fiches, incidents, journaux… gardent leur auteur.
+  addColumns('users', {
+    supprime_le: 'TEXT',
+    supprime_par: 'INTEGER',
+    email_origine: 'TEXT',
+  });
+
   // PROFILS PERSONNALISÉS créés par l'administrateur : un profil porte un nom
   // propre, hérite des PRIVILÈGES d'un rôle de base, et son périmètre est celui
   // du rôle de base + le pôle/ENO affecté au compte utilisateur.

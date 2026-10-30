@@ -38,6 +38,15 @@ const STATUTS_SUIVI = ['Examen à programmer', 'Examen programmé', 'Évaluation
 const progTut = progressionDates; // quota tutorat : 10 % validation + 90 % durée écoulée
 const progEval = progressionEval; // quota éval : réception 10 · date 15 · implémentation 25 · terminées 20 · délibération 30
 
+/* Durée d'une évaluation en jours calendaires, bornes incluses, à partir de la plage
+   saisie à la création (date de démarrage → date de clôture) */
+const dureeJours = (e) => {
+  if (!e.date_demarrage || !e.date_fin_prevue) return null;
+  const n = Math.round((new Date(e.date_fin_prevue) - new Date(e.date_demarrage)) / 86400000) + 1;
+  return n > 0 ? n : null;
+};
+const fmtDuree = (e) => { const n = dureeJours(e); return n ? `${n} j` : '—'; };
+
 const fmtSemestre = (x) => x.niveau && x.semestre_code ? `${x.niveau}-Semestre ${x.semestre_code.replace('S', '')}` : (x.semestre_code || '—');
 const nomProgramme = (x) => x.formation_code || x.formation_nom || (x.pole_code ? `${x.pole_code} (pôle)` : '(pôle entier)');
 
@@ -311,6 +320,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                   <th className="text-left px-4 py-2.5 table-header">Semestre</th>
                   <th className="text-left px-4 py-2.5 table-header">Date de début</th>
                   <th className="text-left px-4 py-2.5 table-header">Date de fin</th>
+                  {voletEval && <th className="text-right px-4 py-2.5 table-header">Durée (jours)</th>}
                   <th className="text-left px-4 py-2.5 table-header">État</th>
                   <th className="text-left px-4 py-2.5 table-header w-44">Progression</th>
                 </tr>
@@ -325,7 +335,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                   return [
                     /* Ligne d'agrégat du niveau (comme la ligne LICENCE 1 du classeur) */
                     <tr key={`niv-${niv}`} style={{ background: seg.light }}>
-                      <td colSpan={4} className="px-4 py-2 font-bold text-sm" style={{ color: seg.color }}>
+                      <td colSpan={voletEval ? 5 : 4} className="px-4 py-2 font-bold text-sm" style={{ color: seg.color }}>
                         {niv ? NIVEAU_LABEL[niv] : 'AUTRES'}
                       </td>
                       <td className="px-4 py-2 text-xs font-semibold" style={{ color: seg.color }}>
@@ -349,6 +359,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                           <td className="px-4 py-2 text-slate-600 whitespace-nowrap">{fmtSemestre(x)}</td>
                           <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{debut || '—'}</td>
                           <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{fin || '—'}</td>
+                          {voletEval && <td className="px-4 py-2 text-right text-slate-700 font-medium whitespace-nowrap tabular-nums">{fmtDuree(x)}</td>}
                           <td className="px-4 py-2">
                             <span className={`badge ${cls} text-[11px]`}>{lbl}</span>
                             {voletEval && x.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
@@ -360,7 +371,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                   ];
                 })}
                 {itemsPole.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">
+                  <tr><td colSpan={voletEval ? 7 : 6} className="px-4 py-10 text-center text-slate-400">
                     Aucune {voletEval ? 'évaluation' : 'fiche de tutorat'} pour ce pôle avec ces filtres
                   </td></tr>
                 )}
@@ -395,6 +406,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                     <th className="text-left px-4 py-2.5 table-header">Session</th>
                     <th className="text-left px-4 py-2.5 table-header">Statut du suivi</th>
                     <th className="text-left px-4 py-2.5 table-header">Fin examen</th>
+                    <th className="text-right px-4 py-2.5 table-header">Durée (jours)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -404,7 +416,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                       <td colSpan={4} className="px-4 py-2 font-bold text-white text-sm tracking-wide">
                         🎓 PROMOTION {g.promo}
                       </td>
-                      <td colSpan={2} className="px-4 py-2 text-right text-[11px] font-semibold text-blue-100">
+                      <td colSpan={3} className="px-4 py-2 text-right text-[11px] font-semibold text-blue-100">
                         {g.total} évaluation(s) · {g.terminees} terminée(s) · {g.deliberees} délibérée(s)
                       </td>
                     </tr>,
@@ -416,13 +428,13 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                             <span className="inline-block w-2 h-2 rounded-full mr-2" style={{ background: seg.color }} />
                             Pôle {gp.pole}
                           </td>
-                          <td colSpan={2} className="px-4 py-1.5 text-right text-[11px] font-semibold" style={{ color: seg.color }}>
+                          <td colSpan={3} className="px-4 py-1.5 text-right text-[11px] font-semibold" style={{ color: seg.color }}>
                             {gp.total} évaluation(s)
                           </td>
                         </tr>,
                         ...gp.niveaux.map(gn => [
                           <tr key={`promo-${g.promo}-pole-${gp.pole}-niv-${gn.niv || 'autres'}`} className="bg-slate-50 border-b border-slate-200">
-                            <td colSpan={6} className="px-6 py-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                            <td colSpan={7} className="px-6 py-1 text-[11px] font-bold text-slate-500 uppercase tracking-wider">
                               {gn.niv ? NIVEAU_LABEL[gn.niv] : 'Autres niveaux'} <span className="font-normal normal-case">— {gn.items.length} formation(s) évaluée(s)</span>
                             </td>
                           </tr>,
@@ -445,6 +457,8 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                                   {e.delib_etat === 'TERMINEE' && <Gavel size={12} className="inline ml-1.5 text-green-600" />}
                                 </td>
                                 <td className="px-4 py-2 text-slate-600 whitespace-nowrap tabular-nums">{e.date_fin_prevue || '—'}</td>
+                                <td className="px-4 py-2 text-right text-slate-700 font-medium whitespace-nowrap tabular-nums"
+                                  title={e.date_demarrage ? `${e.date_demarrage} → ${e.date_fin_prevue || '?'}` : ''}>{fmtDuree(e)}</td>
                               </tr>
                             );
                           }),
@@ -453,7 +467,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                     }),
                   ])}
                   {evalsProg.length === 0 && (
-                    <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400">Aucune évaluation pour ces filtres</td></tr>
+                    <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-400">Aucune évaluation pour ces filtres</td></tr>
                   )}
                 </tbody>
               </table>

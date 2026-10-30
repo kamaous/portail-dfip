@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import api from '../lib/api';
 import toast from 'react-hot-toast';
-import { Plus, RefreshCw, UserX, UserCheck, Edit } from 'lucide-react';
+import { Plus, RefreshCw, UserX, UserCheck, Edit, Trash2 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 
 const ROLES = ['RECTEUR', 'VICE_RECTEUR', 'DIRECTEUR', 'DIRECTEUR_DES', 'DIRECTEUR_DEVES', 'COORDONNATEUR', 'CHEF_SERVICE', 'CHEF_DIV_TECHNOPEDAGOGIE', 'CHEF_DIV_EVALUATION', 'RESPONSABLE_POLE', 'RESPONSABLE_PEDAGOGIQUE', 'RESPONSABLE_FORMATION', 'CHARGE_SCOLARITE', 'MEMBRE_POLE', 'SCOLARITE', 'ENSEIGNANT', 'ETUDIANT', 'ADMIN_PORTAIL'];
@@ -354,6 +354,24 @@ export default function Utilisateurs() {
     load();
   }
 
+  // Suppression du compte (administrateur) : confirmation en retapant l'adresse email
+  async function supprimerCompte(u) {
+    const saisie = prompt(
+      `SUPPRIMER le compte de ${u.prenom} ${u.nom} ?\n\n` +
+      `Le compte disparaît de la liste et ne peut plus se connecter. S'il a un historique ` +
+      `(fiches, évaluations, incidents, actions…), celui-ci est conservé avec son nom.\n` +
+      `Pour simplement suspendre l'accès, utilisez plutôt « Désactiver ».\n\n` +
+      `Pour confirmer, tapez l'adresse email du compte :\n${u.email}`
+    );
+    if (saisie === null) return;
+    if (saisie.trim().toLowerCase() !== u.email.toLowerCase()) return toast.error('Adresse email incorrecte — suppression annulée');
+    try {
+      const r = await api.post(`/users/${u.id}/supprimer`);
+      toast.success(r.data.message, { duration: 6000 });
+      load();
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -456,6 +474,11 @@ export default function Utilisateurs() {
                     {u.id !== me?.id && (
                       <button onClick={() => toggleActif(u)} className={`p-1.5 rounded ${u.actif ? 'text-red-500 hover:bg-red-50' : 'text-green-600 hover:bg-green-50'}`} title={u.actif ? 'Désactiver' : 'Réactiver'}>
                         {u.actif ? <UserX size={15} /> : <UserCheck size={15} />}
+                      </button>
+                    )}
+                    {estAdmin && u.id !== me?.id && (
+                      <button onClick={() => supprimerCompte(u)} className="p-1.5 text-red-600 hover:bg-red-50 rounded" title="Supprimer le compte (administrateur)">
+                        <Trash2 size={15} />
                       </button>
                     )}
                   </div>

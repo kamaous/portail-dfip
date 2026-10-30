@@ -15,6 +15,7 @@ router.get('/', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL', 'CHEF_SERVICE'),
            u.must_change_password, u.bloque, u.created_at, p.nom as pole_nom
     FROM users u
     LEFT JOIN poles p ON p.id = u.pole_id
+    WHERE u.supprime_le IS NULL
     ORDER BY u.nom
   `).all();
   // Libellés des profils personnalisés (rôles hors référentiel)
@@ -104,7 +105,7 @@ router.put('/:id', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) =
   const { nom, prenom, email, role, pole_id, eno_id, service, actif, password } = req.body;
   const db = getDb();
 
-  const prev = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const prev = db.prepare('SELECT * FROM users WHERE id = ? AND supprime_le IS NULL').get(req.params.id);
   if (!prev) return res.status(404).json({ error: 'Utilisateur introuvable' });
 
   // Email modifiable : normalisé + unicité contrôlée
@@ -156,10 +157,72 @@ router.delete('/:id', auth, requireRole('ADMIN_PORTAIL'), (req, res) => {
   res.json({ message: 'Utilisateur désactivé' });
 });
 
+/* POST /api/users/:id/supprimer — SUPPRESSION du compte (ADMIN uniquement)
+   - aucun historique (compte créé par erreur, jamais utilisé) → suppression réelle ;
+   - sinon le compte est RETIRÉ : invisible dans les listes, connexion impossible,
+     email libéré (l'original est conservé dans email_origine), sessions fermées.
+     La ligne reste pour que les fiches, incidents, journaux… gardent leur auteur :
+     aucune donnée métier n'est perdue. */
+const TABLES_PERSONNELLES = ['user_sessions', 'notifications', 'password_resets'];
+function referencesMetier(db, userId) {
+  const refs = [];
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all();
+  for (const { name } of tables) {
+    if (TABLES_PERSONNELLES.includes(name)) continue;
+    for (const fk of db.prepare(`PRAGMA foreign_key_list("${name}")`).all()) {
+      if (fk.table !== 'users') continue;
+      const n = db.prepare(`SELECT COUNT(*) c FROM "${name}" WHERE "${fk.from}" = ?`).get(userId).c;
+      if (n) refs.push({ table: name, colonne: fk.from, n });
+    }
+  }
+  return refs;
+}
+
+router.post('/:id/supprimer', auth, requireRole('ADMIN_PORTAIL'), (req, res) => {
+  const db = getDb();
+  const u = db.prepare('SELECT * FROM users WHERE id = ? AND supprime_le IS NULL').get(req.params.id);
+  if (!u) return res.status(404).json({ error: 'Utilisateur introuvable' });
+  if (u.id === req.user.id) return res.status(400).json({ error: 'Vous ne pouvez pas supprimer votre propre compte.' });
+  if (['ADMIN_PORTAIL', 'COORDONNATEUR'].includes(u.role)) {
+    const autres = db.prepare(`SELECT COUNT(*) c FROM users WHERE role IN ('ADMIN_PORTAIL','COORDONNATEUR')
+      AND actif = 1 AND supprime_le IS NULL AND id != ?`).get(u.id).c;
+    if (!autres) return res.status(409).json({ error: 'Impossible de supprimer le dernier administrateur actif.' });
+  }
+
+  const refs = referencesMetier(db, u.id);
+  const nom = `${u.prenom || ''} ${u.nom}`.trim();
+  db.transaction(() => {
+    db.prepare("UPDATE user_sessions SET actif = 0, disconnected_at = datetime('now') WHERE user_id = ? AND actif = 1").run(u.id);
+    if (refs.length === 0) {
+      for (const t of TABLES_PERSONNELLES) db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(u.id);
+      db.prepare('DELETE FROM users WHERE id = ?').run(u.id);
+    } else {
+      db.prepare("UPDATE password_resets SET used_at = datetime('now') WHERE user_id = ? AND used_at IS NULL").run(u.id);
+      db.prepare(`
+        UPDATE users SET actif = 0, bloque = 0, tentatives_echouees = 0,
+          email_origine = email, email = ?, password_hash = ?,
+          supprime_le = datetime('now'), supprime_par = ?, updated_at = datetime('now')
+        WHERE id = ?
+      `).run(`compte-supprime-${u.id}-${Date.now()}@supprime.invalid`,
+        bcrypt.hashSync(require('crypto').randomBytes(32).toString('hex'), 10), req.user.id, u.id);
+    }
+    db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+      .run(req.user.id, 'DELETE_USER', 'USERS',
+        `${nom} <${u.email}> — ${refs.length ? `retiré, historique conservé (${refs.map(r => `${r.table}:${r.n}`).join(', ')})` : 'supprimé (aucun historique)'}`);
+  })();
+
+  res.json({
+    message: refs.length
+      ? `Compte de ${nom} supprimé. Son historique (fiches, actions…) est conservé ; son adresse email peut être réutilisée.`
+      : `Compte de ${nom} supprimé définitivement (il n'avait aucun historique).`,
+    historique_conserve: refs.length > 0,
+  });
+});
+
 // POST /api/users/:id/debloquer — lève le blocage après 3 tentatives échouées (ADMIN + DIRECTEUR)
 router.post('/:id/debloquer', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL'), (req, res) => {
   const db = getDb();
-  const u = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const u = db.prepare('SELECT * FROM users WHERE id = ? AND supprime_le IS NULL').get(req.params.id);
   if (!u) return res.status(404).json({ error: 'Utilisateur introuvable' });
   db.prepare("UPDATE users SET bloque = 0, tentatives_echouees = 0, updated_at = datetime('now') WHERE id = ?").run(u.id);
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
@@ -186,7 +249,7 @@ router.post('/:id/reset-password', auth, requireRole('DIRECTEUR', 'ADMIN_PORTAIL
     WHERE id = ?
   `).run(hash, req.params.id); // tout mot de passe posé par l'admin doit être changé à la 1re connexion
 
-  const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+  const user = db.prepare('SELECT * FROM users WHERE id = ? AND supprime_le IS NULL').get(req.params.id);
   sendEmail({
     to: user.email,
     subject: '[SUIVI PÉDAGOGIQUE] Réinitialisation de votre mot de passe',

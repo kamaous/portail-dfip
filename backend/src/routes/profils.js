@@ -67,7 +67,7 @@ router.delete('/:id', auth, requireRole('ADMIN_PORTAIL'), (req, res) => {
   const db = getDb();
   const p = db.prepare('SELECT * FROM profils WHERE id = ?').get(req.params.id);
   if (!p) return res.status(404).json({ error: 'Profil introuvable' });
-  const n = db.prepare('SELECT COUNT(*) as c FROM users WHERE role = ?').get(p.code).c;
+  const n = db.prepare('SELECT COUNT(*) as c FROM users WHERE role = ? AND supprime_le IS NULL').get(p.code).c;
   if (n > 0) return res.status(409).json({ error: `Impossible : ${n} compte(s) utilisent ce profil. Réaffectez-les d'abord.` });
   db.prepare('DELETE FROM profils WHERE id = ?').run(p.id);
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
