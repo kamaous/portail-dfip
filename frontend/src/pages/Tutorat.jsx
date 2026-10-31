@@ -374,7 +374,7 @@ function ListeTutorats({ tutorats, onOuvrir }) {
   ];
 
   return (
-    <div className="card !p-0 overflow-x-auto nav-scroll">
+    <div className="card !p-0 defil-tableau nav-scroll">
       <table className="w-full text-sm min-w-[900px]">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200">
@@ -936,7 +936,7 @@ export default function Tutorat() {
       </div>
 
       {/* Segments pôles + bascule de vue */}
-      <div className="card !p-3">
+      <div className="card !p-3 barre-collante">
         <div className="flex flex-wrap items-center gap-2">
           {!poleCodeUser && (
             <button

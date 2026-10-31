@@ -259,7 +259,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
       </div>
 
       {/* Onglets façon classeur + volets + filtres */}
-      <div className="card !p-3 space-y-2.5">
+      <div className="card !p-3 space-y-2.5 barre-collante">
         <div className="flex flex-wrap items-center gap-2">
           {ONGLETS_ORDRE.map(k => {
             const s = POLES_SEG[k];
@@ -315,7 +315,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
 
       {!estDfip ? (
         /* ================== ONGLET PÔLE : SUIVI DE L'EXÉCUTION ================== */
-        <div className="card !p-0 overflow-hidden">
+        <div className="card !p-0 overflow-clip">
           <div className="px-5 py-4 text-white" style={{ background: `linear-gradient(135deg, ${seg.color}, ${seg.color}cc)` }}>
             <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">
               Suivi de l'exécution — {voletEval ? 'évaluations' : 'tutorat'}
@@ -328,7 +328,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
             </div>
           </div>
 
-          <div className="overflow-x-auto nav-scroll">
+          <div className="defil-tableau nav-scroll">
             <table className="w-full text-sm min-w-[760px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">
@@ -411,7 +411,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
       ) : voletEval ? (
         /* ================== ONGLET DFIP · volet ÉVALUATIONS : PROGRAMMATION ================== */
         <>
-          <div className="card !p-0 overflow-hidden">
+          <div className="card !p-0 overflow-clip">
             <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2563eb)' }}>
               <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi de la programmation des évaluations</p>
               <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
@@ -428,7 +428,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
               </div>
             </div>
 
-            <div className="overflow-x-auto nav-scroll">
+            <div className="defil-tableau nav-scroll">
               <table className="w-full text-sm min-w-[820px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -510,7 +510,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
       ) : (
         /* ================== ONGLET DFIP · volet TUTORAT : SUIVI DU TUTORAT ================== */
         <>
-          <div className="card !p-0 overflow-hidden">
+          <div className="card !p-0 overflow-clip">
             <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #0d9488)' }}>
               <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi du tutorat</p>
               <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
@@ -524,7 +524,7 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
               </div>
             </div>
 
-            <div className="overflow-x-auto nav-scroll">
+            <div className="defil-tableau nav-scroll">
               <table className="w-full text-sm min-w-[820px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">

@@ -468,7 +468,7 @@ export default function Evaluations() {
       </div>
 
       {/* Segments pôles + filtres + zoom + vue */}
-      <div className="card !p-3">
+      <div className="card !p-3 barre-collante">
         <div className="flex flex-wrap items-center gap-2">
           {!poleCodeUser && (
             <button onClick={() => setSegment(null)}
@@ -985,7 +985,7 @@ function ListeEvaluations({ evals, onOuvrir }) {
   ];
 
   return (
-    <div className="card !p-0 overflow-x-auto nav-scroll">
+    <div className="card !p-0 defil-tableau nav-scroll">
       <table className="w-full text-sm min-w-[1000px]">
         <thead>
           <tr className="bg-slate-50 border-b border-slate-200">

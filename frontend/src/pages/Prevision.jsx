@@ -207,7 +207,7 @@ export default function Prevision() {
       </div>
 
       {/* Segments + filtres */}
-      <div className="card !p-3 space-y-2.5">
+      <div className="card !p-3 space-y-2.5 barre-collante">
         <div className="flex flex-wrap items-center gap-2">
           {onglets.map(k => {
             const s = POLES_SEG[k];
@@ -247,12 +247,12 @@ export default function Prevision() {
       {onglet === 'DFIP' ? (
         /* ================== VUE D'ENSEMBLE ================== */
         <>
-          <div className="card !p-0 overflow-hidden">
+          <div className="card !p-0 overflow-clip">
             <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2563eb)' }}>
               <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Vue d'ensemble des prévisions</p>
               <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
             </div>
-            <div className="overflow-x-auto nav-scroll">
+            <div className="defil-tableau nav-scroll">
               <table className="w-full text-sm min-w-[720px]">
                 <thead>
                   <tr className="bg-slate-50 border-b border-slate-200">
@@ -315,7 +315,7 @@ export default function Prevision() {
         </>
       ) : pole && (
         /* ================== ONGLET PÔLE : PROMOTION → NIVEAU → SEMESTRE ================== */
-        <div className="card !p-0 overflow-hidden">
+        <div className="card !p-0 overflow-clip">
           <div className="px-5 py-4 text-white" style={{ background: `linear-gradient(135deg, ${seg.color}, ${seg.color}cc)` }}>
             <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Prévision des activités</p>
             <h2 className="font-bold text-lg leading-tight">{pole.nom || pole.code}</h2>
@@ -323,7 +323,7 @@ export default function Prevision() {
               <p className="text-xs text-white/85 mt-1">Consultation seule : votre profil ne crée ni fiches de tutorat ni évaluations pour ce pôle.</p>
             )}
           </div>
-          <div className="overflow-x-auto nav-scroll">
+          <div className="defil-tableau nav-scroll">
             <table className="w-full text-sm min-w-[860px]">
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200">

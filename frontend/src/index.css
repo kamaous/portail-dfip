@@ -72,3 +72,44 @@ input[type="time"], input[type="number"], input[type="search"], textarea, select
 .table-header {
   @apply text-xs font-semibold text-slate-500 uppercase tracking-wider;
 }
+
+/* ===== En-têtes collants =====
+   .barre-collante : bloc onglets / filtres d'une page, fixé en haut de la zone de
+   contenu pendant le défilement (écran d'au moins 768 × 700 px ; sur téléphone ou
+   écran bas, il défile pour laisser la place au contenu).
+   .defil-tableau : la ligne de titres du tableau reste visible ; le mode est choisi
+   automatiquement (Layout.jsx, useEntetesCollants) :
+     - mode « page »   : le tableau tient en largeur → ses titres s'accrochent en haut
+                         de la page, juste sous la barre collante (--haut-barre) ;
+     - mode « interne » : tableau plus large que l'écran → il défile dans sa propre
+                         zone (hauteur de l'écran) et ses titres restent en haut de celle-ci. */
+@media (min-width: 768px) and (min-height: 700px) {
+  .barre-collante {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    box-shadow: 0 6px 16px -10px rgb(15 23 42 / 0.25);
+  }
+}
+.defil-tableau {
+  overflow-x: auto;
+}
+.defil-tableau thead th {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background-color: #f8fafc;
+  box-shadow: inset 0 -1px 0 #e2e8f0;
+}
+.defil-tableau[data-mode="page"] {
+  overflow: visible;
+}
+.defil-tableau[data-mode="page"] thead th {
+  top: var(--haut-barre, 0px);
+}
+.defil-tableau[data-mode="interne"] {
+  overflow: auto;
+  /* hauteur de la zone de contenu moins la barre collante : le cadre entier (et donc
+     sa ligne de titres) reste visible sous la barre */
+  max-height: calc(var(--haut-zone, 100dvh) - var(--haut-barre, 0px) - 1.5rem);
+}

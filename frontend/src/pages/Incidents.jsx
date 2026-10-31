@@ -618,7 +618,7 @@ export default function Incidents() {
       )}
 
       {/* Segments pôles + zoom + bascule de vue */}
-      <div className="card !p-3">
+      <div className="card !p-3 barre-collante">
         <div className="flex flex-wrap items-center gap-2">
           <button
             onClick={() => setSegment(null)}
@@ -693,7 +693,7 @@ export default function Incidents() {
         </div>
       ) : vue === 'LISTE' ? (
         /* ===== Vue LISTE (par défaut) : tableau détaillé ===== */
-        <div className="card !p-0 overflow-x-auto nav-scroll">
+        <div className="card !p-0 defil-tableau nav-scroll">
           <table className="w-full text-sm min-w-[1050px]">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200 text-left">

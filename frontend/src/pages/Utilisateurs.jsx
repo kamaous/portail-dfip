@@ -419,7 +419,7 @@ export default function Utilisateurs() {
         </div>
       )}
 
-      <div className="card !p-0 overflow-x-auto nav-scroll">
+      <div className="card !p-0 defil-tableau nav-scroll">
         <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-slate-50 border-b border-slate-200">
             <tr>

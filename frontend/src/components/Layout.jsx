@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import {
@@ -56,7 +56,48 @@ function SectionTitle({ open, children }) {
   return <p className="text-slate-400 text-[11px] font-semibold px-3 mb-1.5 mt-5 first:mt-1 uppercase tracking-wider">{children}</p>;
 }
 
+/* EN-TÊTES COLLANTS (voir index.css) :
+   - publie la hauteur de la barre collante de la page (onglets / filtres) dans
+     --haut-barre sur la zone de contenu : les titres des tableaux s'accrochent dessous ;
+   - choisit le mode de chaque .defil-tableau : « page » si le tableau tient en largeur,
+     « interne » s'il est plus large (défilement dans son cadre, titres en haut du cadre). */
+function useEntetesCollants(mainRef) {
+  useEffect(() => {
+    const main = mainRef.current;
+    if (!main) return;
+    const suivis = new Set();
+    const maj = () => {
+      const barre = main.querySelector('.barre-collante');
+      const h = barre && getComputedStyle(barre).position === 'sticky' ? barre.offsetHeight : 0;
+      main.style.setProperty('--haut-barre', `${h}px`);
+      main.style.setProperty('--haut-zone', `${main.clientHeight}px`);
+      main.querySelectorAll('.defil-tableau').forEach(el => {
+        const table = el.querySelector('table');
+        if (!table) return;
+        const mode = table.scrollWidth > el.clientWidth + 1 ? 'interne' : 'page';
+        if (el.dataset.mode !== mode) el.dataset.mode = mode;
+      });
+    };
+    const ro = new ResizeObserver(maj);
+    ro.observe(main);
+    const lier = () => {
+      // observe les nouveaux éléments (changement de page, données chargées)
+      main.querySelectorAll('.barre-collante, .defil-tableau, .defil-tableau table').forEach(el => {
+        if (!suivis.has(el)) { suivis.add(el); ro.observe(el); }
+      });
+      maj();
+    };
+    lier();
+    const mo = new MutationObserver(lier);
+    mo.observe(main, { childList: true, subtree: true });
+    window.addEventListener('resize', maj);
+    return () => { mo.disconnect(); ro.disconnect(); window.removeEventListener('resize', maj); };
+  }, [mainRef]);
+}
+
 export default function Layout({ children }) {
+  const mainRef = useRef(null);
+  useEntetesCollants(mainRef);
   const { user, logout, notifCount } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(true);       // repli/déploiement (bureau uniquement)
@@ -233,8 +274,10 @@ export default function Layout({ children }) {
         </header>
 
         {/* Contenu */}
-        <main className="flex-1 overflow-y-auto p-3 sm:p-6 relative">
-          <div className="max-w-7xl mx-auto">
+        {/* La marge du haut est portée par le contenu (et non par la zone qui défile) :
+            les barres et titres collants s'accrochent ainsi tout en haut, sans bande vide */}
+        <main ref={mainRef} className="flex-1 overflow-y-auto px-3 pb-3 sm:px-6 sm:pb-6 relative">
+          <div className="max-w-7xl mx-auto pt-3 sm:pt-6">
             {children}
           </div>
           {notifOpen && <NotifPanel onClose={() => setNotifOpen(false)} />}

@@ -468,7 +468,7 @@ function GestionEno({ enos, estGestion, estCharge, monEno, onChange }) {
       </div>
 
       {vue === 'LISTE' && (
-        <div className="card !p-0 overflow-x-auto nav-scroll">
+        <div className="card !p-0 defil-tableau nav-scroll">
           <table className="w-full text-xs min-w-max">
             <thead>
               <tr className="bg-slate-50 border-b border-slate-200">
@@ -709,7 +709,7 @@ function Simulateur({ cursus }) {
                 <BoutonExport onClick={exporterResultat} />
               </div>
             </div>
-            <div className="card !p-0 overflow-x-auto nav-scroll">
+            <div className="card !p-0 defil-tableau nav-scroll">
               <table className="w-full text-xs">
                 <thead><tr className="bg-slate-50 border-b border-slate-200 text-left">
                   {['ENO', 'Étudiants', 'Capacité', 'Résultat'].map(h => <th key={h} className="px-3 py-2 font-bold text-slate-500">{h}</th>)}
@@ -915,7 +915,7 @@ function ConcepteurCalendrier({ cursus, poles }) {
       )}
 
       {/* Jours / créneaux / matières */}
-      <div className="overflow-x-auto nav-scroll">
+      <div className="defil-tableau nav-scroll">
         <table className="w-full text-xs min-w-max">
           <thead>
             <tr className="bg-slate-50 border-b border-slate-200 text-left">

@@ -105,7 +105,7 @@ export default function Connexions() {
         <h2 className="font-semibold text-slate-800 mb-4 flex items-center gap-2">
           <Monitor size={16} /> Historique des sessions (100 dernières)
         </h2>
-        <div className="overflow-x-auto">
+        <div className="defil-tableau">
           <table className="w-full text-sm">
             <thead className="text-left border-b border-slate-200">
               <tr>
