@@ -5,7 +5,7 @@ import {
   LayoutDashboard, Users, CheckSquare, BookOpen, ClipboardList,
   AlertTriangle, Bell, LogOut, Settings,
   Building2, Calendar, ClipboardCheck, CalendarOff, Video,
-  PanelLeftClose, PanelLeftOpen, GanttChartSquare, Gauge, BarChart3, Menu
+  PanelLeftClose, PanelLeftOpen, GanttChartSquare, Gauge, BarChart3, Menu, CalendarClock
 } from 'lucide-react';
 
 // Rôles « visiteurs » : lecture seule du planning annuel uniquement
@@ -145,6 +145,7 @@ export default function Layout({ children }) {
           <NavItem to="/statistiques" icon={BarChart3} label="Statistiques" open={open} />
           <NavItem to="/taches" icon={CheckSquare} label="Tâches" open={open} />
           <NavItem to="/planning" icon={GanttChartSquare} label="Planning annuel" open={open} />
+          <NavItem to="/prevision" icon={CalendarClock} label="Prévision" open={open} />
           <NavItem to="/tutorat" icon={BookOpen} label="Tutorat" open={open} />
           <NavItem to="/evaluations" icon={ClipboardCheck} label="Évaluations" open={open} />
           <NavItem to="/incidents" icon={AlertTriangle} label="Incidents" open={open} />

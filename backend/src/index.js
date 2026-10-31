@@ -63,6 +63,7 @@ app.use('/api/statistiques', require('./routes/statistiques').router);
 app.use('/api/referentiel', require('./routes/referentiel').router);
 app.use('/api/parametres', require('./routes/parametres').router);
 app.use('/api/profils', require('./routes/profils').router);
+app.use('/api/prevision', require('./routes/prevision')); // anticipation tutorat / évaluations
 
 // Nettoyage des sessions expirées (toutes les heures)
 setInterval(() => {

@@ -12,6 +12,7 @@ import Tutorat from './pages/Tutorat';
 import Evaluations from './pages/Evaluations';
 import Reunions from './pages/Reunions';
 import Resume from './pages/Resume';
+import Prevision from './pages/Prevision';
 import PlanningPublic from './pages/PlanningPublic';
 import ResumePublic from './pages/ResumePublic';
 import Rapport from './pages/Rapport';
@@ -92,6 +93,11 @@ function AppRoutes() {
       <Route path="/resume" element={
         <ProtectedRoute roles={ROLES_METIER}>
           <Layout><Resume /></Layout>
+        </ProtectedRoute>
+      } />
+      <Route path="/prevision" element={
+        <ProtectedRoute roles={ROLES_METIER}>
+          <Layout><Prevision /></Layout>
         </ProtectedRoute>
       } />
       <Route path="/taches" element={

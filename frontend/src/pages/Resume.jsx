@@ -144,10 +144,22 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
   const itemsPole = voletEval
     ? evalsF.filter(e => e.pole_code === onglet)
     : tutoratsF.filter(t => t.pole_code === onglet);
-  const parNiveau = NIVEAUX_ORDRE
-    .map(niv => ({ niv, items: itemsPole.filter(x => x.niveau === niv) }))
-    .filter(g => g.items.length > 0);
-  const sansNiveau = itemsPole.filter(x => !NIVEAUX_ORDRE.includes(x.niveau));
+  // Rangement comme l'onglet DFIP : PROMOTION → NIVEAU → programmes
+  const parPromo = [...new Set(itemsPole.map(x => x.promotion_code || '—'))]
+    .sort((a, b) => b.localeCompare(a, 'fr', { numeric: true })) // P13 avant P12…
+    .map(promo => {
+      const dePromo = itemsPole.filter(x => (x.promotion_code || '—') === promo);
+      const niveaux = [...NIVEAUX_ORDRE.filter(n => dePromo.some(x => x.niveau === n)),
+        ...(dePromo.some(x => !NIVEAUX_ORDRE.includes(x.niveau)) ? [null] : [])];
+      return {
+        promo, items: dePromo,
+        niveaux: niveaux.map(niv => ({
+          niv, items: dePromo.filter(x => niv === null ? !NIVEAUX_ORDRE.includes(x.niveau) : x.niveau === niv)
+            .sort((a, b) => (a.semestre_code || '').localeCompare(b.semestre_code || '', 'fr', { numeric: true })
+              || nomProgramme(a).localeCompare(nomProgramme(b))),
+        })),
+      };
+    });
   const majPole = itemsPole.reduce((m, x) => ((x.updated_at || x.created_at || '') > m ? (x.updated_at || x.created_at) : m), '');
 
   /* ===== Données onglet DFIP : programmation des évaluations =====
@@ -186,6 +198,10 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
   const nbTerminees = evalsDfip.filter(e => e.etat_eval === 'EVAL_TERMINEES').length;
   const nbDeliberees = evalsDfip.filter(e => e.delib_etat === 'TERMINEE').length;
   const nbReportees = incidents.filter(i => i.conseq_eval === 'REPORT').length;
+  // Jours d'examens (somme des durées) et durée moyenne — évaluations non annulées à dates valides
+  const durees = evalsDfip.filter(e => e.etat !== 'ANNULE').map(dureeJours).filter(Boolean);
+  const totalJoursExamens = durees.reduce((s, n) => s + n, 0);
+  const dureeMoyenne = durees.length ? totalJoursExamens / durees.length : 0;
 
   /* ===== Onglet DFIP, volet TUTORAT : même hiérarchie Promotions → Pôles → Niveaux ===== */
   const tutosDfip = tutoratsF.filter(t => !fProg || nomProgramme(t) === fProg)
@@ -326,15 +342,27 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                 </tr>
               </thead>
               <tbody>
-                {[...parNiveau, ...(sansNiveau.length ? [{ niv: null, items: sansNiveau }] : [])].map(({ niv, items }) => {
+                {parPromo.map(gp => {
                   const prog = voletEval ? progEval : progTut;
+                  const estTermine = x => voletEval
+                    ? x.etat_eval === 'EVAL_TERMINEES' || x.delib_etat === 'TERMINEE'
+                    : etatTutoratAuto(x) === 'TERMINE';
+                  return [
+                    /* En-tête de promotion (comme l'onglet DFIP) */
+                    <tr key={`promo-${gp.promo}`} style={{ background: '#1e3a5f' }}>
+                      <td colSpan={voletEval ? 5 : 4} className="px-4 py-2 font-bold text-white text-sm tracking-wide">
+                        🎓 PROMOTION {gp.promo}
+                      </td>
+                      <td colSpan={2} className="px-4 py-2 text-right text-[11px] font-semibold text-blue-100">
+                        {gp.items.length} {voletEval ? 'évaluation(s)' : 'programme(s)'} · {gp.items.filter(estTermine).length} terminé(s)
+                      </td>
+                    </tr>,
+                    ...gp.niveaux.flatMap(({ niv, items }) => {
                   const pctNiv = items.reduce((s, x) => s + prog(x), 0) / items.length;
-                  const termines = voletEval
-                    ? items.filter(e => e.etat_eval === 'EVAL_TERMINEES' || e.delib_etat === 'TERMINEE').length
-                    : items.filter(t => etatTutoratAuto(t) === 'TERMINE').length;
+                  const termines = items.filter(estTermine).length;
                   return [
                     /* Ligne d'agrégat du niveau (comme la ligne LICENCE 1 du classeur) */
-                    <tr key={`niv-${niv}`} style={{ background: seg.light }}>
+                    <tr key={`promo-${gp.promo}-niv-${niv}`} style={{ background: seg.light }}>
                       <td colSpan={voletEval ? 5 : 4} className="px-4 py-2 font-bold text-sm" style={{ color: seg.color }}>
                         {niv ? NIVEAU_LABEL[niv] : 'AUTRES'}
                       </td>
@@ -351,7 +379,6 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                         <tr key={x.id} className="border-b border-slate-50 hover:bg-slate-50/60">
                           <td className="px-4 py-2">
                             <span className="font-medium text-slate-800" title={x.formation_nom || ''}>{nomProgramme(x)}</span>
-                            {x.promotion_code && <span className="text-xs text-slate-400"> · {x.promotion_code}</span>}
                             {voletEval && <span className="text-xs text-slate-400"> · S{x.session_num} {SESSION_LABEL[x.session_num]}</span>}
                             {voletEval && x.type_evaluation === 'DEVOIR' && <span className="badge bg-cyan-100 text-cyan-700 text-[10px] ml-1.5">Devoir</span>}
                             {x.activite_id && <span title="Issue du planning annuel"> 🔗</span>}
@@ -367,6 +394,8 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
                           <td className="px-4 py-2"><Barre pct={voletEval ? progEval(x) : progTut(x)} /></td>
                         </tr>
                       );
+                    }),
+                  ];
                     }),
                   ];
                 })}
@@ -386,9 +415,12 @@ export function ResumeCorps({ tutorats, evals, poles, incidents, loading, onRefr
             <div className="px-5 py-4 text-white" style={{ background: 'linear-gradient(135deg, #1e3a5f, #2563eb)' }}>
               <p className="text-[11px] font-bold uppercase tracking-wider text-white/70">Suivi de la programmation des évaluations</p>
               <h2 className="font-bold text-lg leading-tight">Direction de la Formation et de l'Ingénierie pédagogique (DFIP)</h2>
-              <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-3">
-                {[['Effectif', evalsDfip.length], ['Programmées', nbProgrammees], ['Terminées', nbTerminees], ['Délibérées', nbDeliberees], ['Reportées', nbReportees]].map(([l, v]) => (
-                  <div key={l} className="bg-white/12 border border-white/20 rounded-xl px-3 py-2 text-center">
+              <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 mt-3">
+                {[['Effectif', evalsDfip.length], ['Programmées', nbProgrammees], ['Terminées', nbTerminees], ['Délibérées', nbDeliberees], ['Reportées', nbReportees],
+                  ['Jours d\'examens', `${totalJoursExamens} j`, `Somme des durées de ${durees.length} évaluation(s) (hors annulées)`],
+                  ['Durée moyenne', `${dureeMoyenne.toLocaleString('fr-FR', { maximumFractionDigits: 1 })} j`, 'Durée moyenne d\'une évaluation, à partir des plages saisies'],
+                ].map(([l, v, info]) => (
+                  <div key={l} title={info || ''} className="bg-white/12 border border-white/20 rounded-xl px-3 py-2 text-center">
                     <p className="text-xl font-bold tabular-nums">{v}</p>
                     <p className="text-[11px] text-white/75 uppercase tracking-wide">{l}</p>
                   </div>
