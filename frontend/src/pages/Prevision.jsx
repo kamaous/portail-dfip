@@ -134,7 +134,9 @@ export default function Prevision() {
   async function creer(pole, cohorte, semestre, formation, etape, debut, fin, silencieux) {
     const [url, body] = charge(data.annee, pole, cohorte, semestre, formation, etape, debut, fin);
     try {
-      await api.post(url, body);
+      const r = await api.post(url, body);
+      // Contrôle de capacité désactivé par le Directeur DES : dépassement signalé, création faite
+      if (r.data?.avertissement) toast(`${formation.code || formation.nom} ${semestre} : ${r.data.avertissement}`, { icon: '⚠️', duration: 8000 });
       if (!silencieux) { toast.success(`${ETAPES[etape].court} ${formation.code || formation.nom} ${semestre} créé(e)`); load(); }
       return true;
     } catch (err) {

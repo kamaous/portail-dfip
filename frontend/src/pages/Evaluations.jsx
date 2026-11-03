@@ -58,6 +58,8 @@ function LigneFormationEvaluation({ ligne, index, formations, formationsExclues,
   const dispo = formations.filter(f => !formationsExclues.includes(String(f.id)) || String(f.id) === ligne.formation_id);
 
   const [capaciteLive, setCapaciteLive] = useState(null);
+  // Contrôle de capacité désactivé par le Directeur DES : le dépassement devient un simple avertissement
+  const [avertissementCapa, setAvertissementCapa] = useState(null);
   const [groupesRequis, setGroupesRequis] = useState([]);
   // Auto-scission une seule fois par formation : si l'effectif dépasse la capacité
   // d'un ENO, on programme automatiquement le GROUPE 1 (l'utilisateur reste libre
@@ -66,13 +68,15 @@ function LigneFormationEvaluation({ ligne, index, formations, formationsExclues,
   useEffect(() => { autoAppliqueRef.current = false; }, [ligne.formation_id]);
   useEffect(() => {
     setCapaciteLive(null);
+    setAvertissementCapa(null);
     if (!ligne.formation_id || !promotion_id || !niveau) { setGroupesRequis([]); return; }
     api.post('/evaluations/check-conflit', {
       formation_id: ligne.formation_id, promotion_id, niveau,
       date_demarrage: ligne.date_demarrage, date_fin_prevue: ligne.date_fin_prevue,
       heure_debut, heure_fin, groupe: ligne.groupe || null,
     }).then(r => {
-      setCapaciteLive(r.data.capacite || null);
+      if (r.data.controle_capacite === false) setAvertissementCapa(r.data.avertissement || null);
+      else setCapaciteLive(r.data.capacite || null);
       setGroupesRequis(r.data.groupes_requis || []);
       if ((r.data.groupes_requis || []).length > 0 && !ligne.groupe && !autoAppliqueRef.current) {
         autoAppliqueRef.current = true;
@@ -123,6 +127,11 @@ function LigneFormationEvaluation({ ligne, index, formations, formationsExclues,
       {capaciteLive && (
         <div className="bg-red-50 border-2 border-red-200 rounded-lg p-2 text-[11px] text-red-700">
           ⛔ Capacité ENO dépassée : {capaciteLive.satures.map(s => `${s.eno} (${s.demande}/${s.capacite}, manque ${s.manque})`).join(' · ')}.
+        </div>
+      )}
+      {avertissementCapa && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-2 text-[11px] text-amber-800">
+          ⚠ {avertissementCapa}. Le contrôle de capacité est désactivé par le Directeur DES : l'évaluation sera enregistrée.
         </div>
       )}
       {erreur && <p className="text-[11px] text-red-600 font-medium">⚠ {erreur}</p>}
@@ -197,6 +206,7 @@ function ModalEvaluation({ poles, promotions, annees, user, defaultDate, onClose
     const succes = lignes.length - echecs.length;
 
     if (succes > 0) { toast.success(`${succes} évaluation(s) enregistrée(s) — concernés notifiés`); onCreated(); }
+    resultats.forEach(r => { if (r.status === 'fulfilled' && r.value.data?.avertissement) toast(r.value.data.avertissement, { icon: '⚠️', duration: 8000 }); });
     if (echecs.length === 0) {
       onClose();
     } else {
@@ -363,7 +373,12 @@ export default function Evaluations() {
 
   async function update(id, patch) {
     setItems(ss => ss.map(s => s.id === id ? { ...s, ...patch } : s));
-    try { await api.put(`/evaluations/${id}`, patch); toast.success('Mise à jour enregistrée'); load(); }
+    try {
+      const r = await api.put(`/evaluations/${id}`, patch);
+      toast.success('Mise à jour enregistrée');
+      if (r.data?.avertissement) toast(r.data.avertissement, { icon: '⚠️', duration: 8000 });
+      load();
+    }
     catch (err) {
       if (err.response?.data?.conflit) {
         setConflitInfo(err.response.data);   // popup explicite : conflit inter-pôles
@@ -718,8 +733,9 @@ export default function Evaluations() {
         <ModalMotif data={motifModal} onClose={() => { setMotifModal(null); load(); }}
           onConfirm={async (motif) => {
             try {
-              await api.put(`/evaluations/${motifModal.session.id}`, { ...motifModal.patch, motif });
+              const r = await api.put(`/evaluations/${motifModal.session.id}`, { ...motifModal.patch, motif });
               toast.success(motifModal.action === 'ANNULATION' ? 'Annulée — incident créé' : 'Reportée — incident créé');
+              if (r.data?.avertissement) toast(r.data.avertissement, { icon: '⚠️', duration: 8000 });
             } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
             setMotifModal(null); load();
           }} />

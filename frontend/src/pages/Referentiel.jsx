@@ -27,6 +27,7 @@ export default function Referentiel() {
   const [demandes, setDemandes] = useState([]);
   const [contrainte, setContrainte] = useState(null); // option « contrainte des plages » (Directeur DES)
   const [contrainteVacances, setContrainteVacances] = useState(null); // option « vacances bloquantes pour les évaluations » (Directeur DES)
+  const [controleCapacite, setControleCapacite] = useState(null); // option « contrôle de la capacité d'accueil des ENO » (Directeur DES)
   const [loading, setLoading] = useState(true);
   const [modalFormation, setModalFormation] = useState(null); // { pole, formation? }
   const [modalPole, setModalPole] = useState(null);           // { pole? } — création/édition
@@ -39,7 +40,8 @@ export default function Referentiel() {
       api.get('/referentiel/suppressions').catch(() => ({ data: [] })),
       api.get('/parametres/contrainte-plages').catch(() => ({ data: { active: null } })),
       api.get('/parametres/contrainte-vacances').catch(() => ({ data: { active: null } })),
-    ]).then(([p, pr, d, c, cv]) => { setPoles(p.data); setPromotions(pr.data); setDemandes(d.data); setContrainte(c.data.active); setContrainteVacances(cv.data.active); })
+      api.get('/parametres/controle-capacite').catch(() => ({ data: { active: null } })),
+    ]).then(([p, pr, d, c, cv, cc]) => { setPoles(p.data); setPromotions(pr.data); setDemandes(d.data); setContrainte(c.data.active); setContrainteVacances(cv.data.active); setControleCapacite(cc.data.active); })
       .finally(() => setLoading(false));
   }
   useEffect(load, []);
@@ -61,6 +63,16 @@ export default function Referentiel() {
       toast.success(r.data.active
         ? 'Vacances BLOQUANTES : la création d\'évaluations pendant les vacances est de nouveau interdite'
         : 'Vacances autorisées : les évaluations peuvent désormais être programmées pendant les vacances');
+    } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
+  }
+
+  async function basculerControleCapacite() {
+    try {
+      const r = await api.put('/parametres/controle-capacite', { active: !controleCapacite });
+      setControleCapacite(r.data.active);
+      toast.success(r.data.active
+        ? 'Contrôle de capacité ACTIVÉ : une évaluation qui dépasse la capacité d\'un ENO est de nouveau refusée'
+        : 'Contrôle de capacité désactivé : les évaluations se programment sans tenir compte des capacités (simple avertissement)');
     } catch (err) { toast.error(err.response?.data?.error || 'Erreur'); }
   }
 
@@ -152,6 +164,35 @@ export default function Referentiel() {
             ) : (
               <span className={`badge shrink-0 ${contrainteVacances ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
                 {contrainteVacances ? 'Bloquées' : 'Autorisées'} · gérée par le Directeur DES
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Option du Directeur DES : contrôle de la capacité d'accueil des ENO */}
+      {controleCapacite !== null && (
+        <div className={`card border-2 ${controleCapacite ? 'border-amber-300 bg-amber-50/60' : 'border-slate-200'}`}>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-2xl">{controleCapacite ? '🔒' : '🔓'}</span>
+            <div className="min-w-0 flex-1">
+              <h2 className="font-semibold text-slate-800">Capacité d'accueil des ENO</h2>
+              <p className="text-xs text-slate-500 mt-0.5">
+                {controleCapacite
+                  ? 'CONTRÔLÉE — une évaluation dont les effectifs dépassent la capacité d\'un ENO est refusée ; la promotion est scindée en Groupe 1 / Groupe 2.'
+                  : 'Non contrôlée — les évaluations se programment sans tenir compte des effectifs ni des capacités des ENO ; un simple avertissement signale un dépassement.'}
+              </p>
+            </div>
+            {estDES ? (
+              <button onClick={basculerControleCapacite}
+                className={`shrink-0 px-4 py-2 rounded-xl text-sm font-bold border-2 transition-all ${controleCapacite
+                  ? 'bg-amber-500 text-white border-amber-500 hover:bg-amber-600'
+                  : 'bg-white text-slate-600 border-slate-300 hover:border-slate-500'}`}>
+                {controleCapacite ? 'Désactiver le contrôle' : 'Activer le contrôle'}
+              </button>
+            ) : (
+              <span className={`badge shrink-0 ${controleCapacite ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-500'}`}>
+                {controleCapacite ? 'Contrôlée' : 'Non contrôlée'} · gérée par le Directeur DES
               </span>
             )}
           </div>

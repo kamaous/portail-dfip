@@ -62,6 +62,13 @@ function conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrag
   return r.faisable ? null : r;
 }
 
+/* Option du Directeur DES « contrôle de la capacité d'accueil des ENO » (active par défaut).
+   Désactivée : un dépassement n'est plus bloquant et la scission G1 / G2 n'est plus
+   proposée ; un avertissement signale simplement le dépassement. */
+const capaciteBloquante = (db) => getParam(db, 'controle_capacite') !== '0';
+const avertissementCapacite = (capa) => capa.satures
+  .map(x => `Attention : capacité de l'ENO de ${x.eno} dépassée de ${x.manque} place${x.manque > 1 ? 's' : ''}`).join(' ; ');
+
 /* ENO où l'effectif du cursus dépasse À LUI SEUL la capacité d'accueil :
    la promotion doit alors être scindée en 2 groupes (G1 / G2). */
 function enosNecessitantGroupes(db, { formation_id, promotion_id, niveau }) {
@@ -168,14 +175,13 @@ router.post('/check-date', auth, (req, res) => {
 router.post('/check-conflit', auth, (req, res) => {
   const db = getDb();
   const { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe, exclure_id } = req.body;
-  if (!formation_id || !promotion_id || !niveau) return res.json({ capacite: null, groupes_requis: [] });
-  // ENO où l'effectif du cursus dépasse à lui seul la capacité → scission G1/G2 proposée
-  const groupes_requis = enosNecessitantGroupes(db, { formation_id, promotion_id, niveau });
-  if (!date_demarrage) return res.json({ capacite: null, groupes_requis });
-  res.json({
-    capacite: conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe: groupe || null, exclure_id }),
-    groupes_requis,
-  });
+  const controle_capacite = capaciteBloquante(db);
+  if (!formation_id || !promotion_id || !niveau) return res.json({ capacite: null, groupes_requis: [], controle_capacite });
+  // ENO où l'effectif du cursus dépasse à lui seul la capacité → scission G1/G2 proposée (contrôle actif seulement)
+  const groupes_requis = controle_capacite ? enosNecessitantGroupes(db, { formation_id, promotion_id, niveau }) : [];
+  if (!date_demarrage) return res.json({ capacite: null, groupes_requis, controle_capacite });
+  const capacite = conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe: groupe || null, exclure_id });
+  res.json({ capacite, groupes_requis, controle_capacite, avertissement: capacite ? avertissementCapacite(capacite) : null });
 });
 
 /* ===== Création (Responsables de formation, dans les plages du planning) ===== */
@@ -209,7 +215,7 @@ router.post('/', auth, creationAutorisee, (req, res) => {
   // RÈGLE MÉTIER : capacité physique des ENO (effectifs cumulés des évaluations simultanées,
   // au même créneau horaire — deux créneaux disjoints ne se cumulent pas)
   const capa = conflitCapacite(db, { formation_id, promotion_id, niveau, date_demarrage, date_fin_prevue, heure_debut, heure_fin, groupe: groupe || null });
-  if (capa) {
+  if (capa && capaciteBloquante(db)) {
     return res.status(409).json({
       error: `Capacité ENO dépassée : ${capa.satures.map(x => `${x.eno} (${x.demande}/${x.capacite}, ${x.manque} places manquantes)`).join(' ; ')}. Changez les dates, répartissez sur d'autres créneaux ou scindez en groupes G1/G2.`,
       conflit: true, capacite: capa,
@@ -244,7 +250,10 @@ router.post('/', auth, creationAutorisee, (req, res) => {
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
     .run(req.user.id, 'CREATE_EVALUATION', 'EVALUATIONS', `${filiere?.nom || ''} ${SESSION_LABEL[session_num || 1]}`);
 
-  res.status(201).json(db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(r.lastInsertRowid));
+  res.status(201).json({
+    ...db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(r.lastInsertRowid),
+    avertissement: capa ? avertissementCapacite(capa) : null, // contrôle de capacité désactivé par le DES
+  });
 });
 
 /* ===== Mise à jour ===== */
@@ -299,6 +308,7 @@ router.put('/:id', auth, (req, res) => {
   if (changeDates && prev.activite_id) {
     return res.status(409).json({ error: 'Cette évaluation est liée au Planning annuel : modifiez les dates de l\'activité dans le planning.' });
   }
+  let capaMaj = null; // dépassement de capacité toléré quand le contrôle est désactivé
   if (changeDates) {
     if (!estSuivi && !estRF) return res.status(403).json({ error: 'Les dates sont renseignées par le responsable de formation.' });
     const errPlage = controlePlage(db, req.user, {
@@ -309,7 +319,7 @@ router.put('/:id', auth, (req, res) => {
     if (errPlage) return res.status(422).json({ error: errPlage, hors_plage: true });
 
     // Capacité des ENO sur les nouvelles dates / heures
-    const capa = conflitCapacite(db, {
+    capaMaj = conflitCapacite(db, {
       formation_id: prev.formation_id, promotion_id: prev.promotion_id, niveau: prev.niveau,
       date_demarrage: date_demarrage ?? prev.date_demarrage,
       date_fin_prevue: date_fin_prevue ?? prev.date_fin_prevue,
@@ -318,7 +328,8 @@ router.put('/:id', auth, (req, res) => {
       groupe: groupe !== undefined ? (groupe || null) : prev.groupe,
       exclure_id: prev.id,
     });
-    if (capa) {
+    const capa = capaMaj;
+    if (capa && capaciteBloquante(db)) {
       return res.status(409).json({
         error: `Capacité ENO dépassée : ${capa.satures.map(x => `${x.eno} (${x.demande}/${x.capacite}, ${x.manque} places manquantes)`).join(' ; ')}. Changez les dates.`,
         conflit: true, capacite: capa,
@@ -425,7 +436,10 @@ router.put('/:id', auth, (req, res) => {
     }
   }
 
-  res.json(db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(req.params.id));
+  res.json({
+    ...db.prepare('SELECT * FROM sessions_examen WHERE id = ?').get(req.params.id),
+    avertissement: capaMaj ? avertissementCapacite(capaMaj) : null,
+  });
 });
 
 /* ===== Délibérations groupées (Directeur de pôle : plusieurs formations à la fois) ===== */

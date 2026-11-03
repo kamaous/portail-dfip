@@ -822,7 +822,7 @@ function ConcepteurCalendrier({ cursus, poles }) {
     const fins = valides.map(l => l.heure_fin).filter(Boolean).sort();
     setCreation(true);
     try {
-      await api.post('/evaluations', {
+      const cree = await api.post('/evaluations', {
         annee_id: annee.id, pole_id: pole?.id, promotion_id: promo.id, formation_id: Number(sel.formation_id),
         niveau: sel.niveau, semestre_code: sel.semestre_code, session_num: sel.session_num,
         type_evaluation: 'EVALUATION',
@@ -835,6 +835,7 @@ function ConcepteurCalendrier({ cursus, poles }) {
         })),
       });
       toast.success('Évaluation créée avec son calendrier d\'épreuves');
+      if (cree.data?.avertissement) toast(cree.data.avertissement, { icon: '⚠️', duration: 8000 });
       const qs = new URLSearchParams({
         formations: String(sel.formation_id), promotions: sel.promotion_code,
         niveaux: sel.niveau, semestres: sel.semestre_code, sessions: String(sel.session_num),

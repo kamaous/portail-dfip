@@ -11,9 +11,13 @@ const router = express.Router();
    contrainte_vacances : '1' (défaut) = création d'évaluations INTERDITE durant
    les vacances scolaires ; '0' = autorisée. Les jours FÉRIÉS restent, eux,
    TOUJOURS bloquants (non concernés par cette option).
+   controle_capacite : '1' (défaut) = la capacité d'accueil des ENO est contrôlée :
+   une évaluation qui dépasse la capacité est REFUSÉE (scission G1 / G2 proposée) ;
+   '0' = évaluations programmées sans tenir compte des effectifs ni des capacités,
+   un simple avertissement signale le dépassement.
    SEUL LE DIRECTEUR DES active ou désactive ces options. */
 
-const DEFAUTS = { contrainte_plages: '0', contrainte_vacances: '1' };
+const DEFAUTS = { contrainte_plages: '0', contrainte_vacances: '1', controle_capacite: '1' };
 
 function getParam(db, cle) {
   const row = db.prepare('SELECT valeur FROM parametres WHERE cle = ?').get(cle);
@@ -52,6 +56,18 @@ router.put('/contrainte-vacances', auth, requireRole('DIRECTEUR_DES'), (req, res
   setParam(db, 'contrainte_vacances', active ? '1' : '0', req.user.id);
   db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
     .run(req.user.id, 'PARAM_CONTRAINTE_VACANCES', 'PARAMETRES', active ? 'ACTIVÉE' : 'DÉSACTIVÉE');
+  res.json({ active });
+});
+
+router.get('/controle-capacite', auth, (req, res) => {
+  res.json({ active: getParam(getDb(), 'controle_capacite') !== '0' });
+});
+router.put('/controle-capacite', auth, requireRole('DIRECTEUR_DES'), (req, res) => {
+  const db = getDb();
+  const active = req.body.active === true || req.body.active === 1 || req.body.active === '1';
+  setParam(db, 'controle_capacite', active ? '1' : '0', req.user.id);
+  db.prepare('INSERT INTO audit_logs (user_id, action, module, detail) VALUES (?, ?, ?, ?)')
+    .run(req.user.id, 'PARAM_CONTROLE_CAPACITE', 'PARAMETRES', active ? 'ACTIVÉ' : 'DÉSACTIVÉ');
   res.json({ active });
 });
 
