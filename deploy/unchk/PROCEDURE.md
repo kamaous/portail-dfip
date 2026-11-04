@@ -111,3 +111,21 @@ saisies faites depuis la sauvegarde seraient perdues.
 `https://suivipedagogique.unchk.sn`). Exemple : `APP_DIR=/var/www/autre ./deploy-unchk.sh verifier`.
 
 > `deploy/deploy.js` concerne l'**ancien** serveur (pedagogie.tekkina.sn) : ne plus l'utiliser.
+
+## Mise à jour de Node.js (20 → 22 LTS)
+
+Script `migrer-node22.sh`, déposé à côté de `deploy-unchk.sh` dans `~/deploiement` :
+
+```bash
+./migrer-node22.sh verifier                    # versions, PM2, outils, autres applications
+./migrer-node22.sh sauvegarder                 # sauvegarde complète + copie des modules Node 20
+# copier la sauvegarde hors du serveur
+./migrer-node22.sh migrer <dossier_sauvegarde> # outils de compilation, Node 22, recompilation, redémarrage
+./migrer-node22.sh retour <dossier_sauvegarde> # au besoin : retour à Node 20
+```
+
+`better-sqlite3` 9.6.0 n'a pas de binaire précompilé pour Node 22 : il est recompilé sur
+place (`build-essential`, `python3`). Si l'installation, la recompilation ou le redémarrage
+échoue, le retour à Node 20 et aux modules d'origine est automatique. Les autres processus
+PM2 passent sous Node 22 avec `pm2 save && pm2 update`, une fois leurs modules natifs
+recompilés s'ils en ont.
