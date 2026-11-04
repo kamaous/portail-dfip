@@ -172,7 +172,7 @@ cmd_migrer() {
   if command -v gcc >/dev/null && command -v make >/dev/null && command -v python3 >/dev/null; then
     vert "  déjà présents"
   else
-    root apt-get update > /tmp/apt-update.log 2>&1
+    root timeout 600 apt-get update > /tmp/apt-update.log 2>&1 || { tail -25 /tmp/apt-update.log; stop "« apt-get update » a échoué ou a dépassé 10 min (rien n'a encore changé) : voir les lignes ci-dessus, ou /tmp/apt-update.log"; }
     root apt-get install -y build-essential python3 > /tmp/apt-build.log 2>&1 || { tail -20 /tmp/apt-build.log; stop "installation des outils impossible (rien n'a encore changé)"; }
     vert "  build-essential et python3 installés"
   fi
