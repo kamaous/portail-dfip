@@ -123,12 +123,12 @@ installer_node() { # $1 = 20 ou 22
   curl -fsSL "https://deb.nodesource.com/setup_${v}.x" -o "/tmp/nodesource_setup_${v}.sh"
   root bash "/tmp/nodesource_setup_${v}.sh" > "/tmp/nodesource_setup_${v}.log" 2>&1 || { tail -20 "/tmp/nodesource_setup_${v}.log"; return 1; }
   if [ "$v" = 22 ]; then
-    root apt-get install -y nodejs > /tmp/apt-nodejs.log 2>&1 || { tail -20 /tmp/apt-nodejs.log; return 1; }
+    root apt-get -o DPkg::Lock::Timeout=900 install -y nodejs > /tmp/apt-nodejs.log 2>&1 || { tail -20 /tmp/apt-nodejs.log; return 1; }
   else
     # retour : version 20.x la plus récente du dépôt, rétrogradation autorisée
     local ver; ver="$(apt-cache madison nodejs | awk '$3 ~ /^20\./ {print $3; exit}')"
     [ -n "$ver" ] || { rouge "aucune version 20.x dans le dépôt"; return 1; }
-    root apt-get install -y --allow-downgrades "nodejs=$ver" > /tmp/apt-nodejs.log 2>&1 || { tail -20 /tmp/apt-nodejs.log; return 1; }
+    root apt-get -o DPkg::Lock::Timeout=900 install -y --allow-downgrades "nodejs=$ver" > /tmp/apt-nodejs.log 2>&1 || { tail -20 /tmp/apt-nodejs.log; return 1; }
   fi
   hash -r
   [[ "$(node -v)" == "v$v."* ]] || { rouge "Node attendu v$v.x, obtenu $(node -v)"; return 1; }
@@ -173,7 +173,7 @@ cmd_migrer() {
     vert "  déjà présents"
   else
     root timeout 600 apt-get update > /tmp/apt-update.log 2>&1 || { tail -25 /tmp/apt-update.log; stop "« apt-get update » a échoué ou a dépassé 10 min (rien n'a encore changé) : voir les lignes ci-dessus, ou /tmp/apt-update.log"; }
-    root apt-get install -y build-essential python3 > /tmp/apt-build.log 2>&1 || { tail -20 /tmp/apt-build.log; stop "installation des outils impossible (rien n'a encore changé)"; }
+    root apt-get -o DPkg::Lock::Timeout=900 install -y build-essential python3 > /tmp/apt-build.log 2>&1 || { tail -20 /tmp/apt-build.log; stop "installation des outils impossible (rien n'a encore changé)"; }
     vert "  build-essential et python3 installés"
   fi
 
